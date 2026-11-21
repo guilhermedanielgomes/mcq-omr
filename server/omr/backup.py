@@ -118,24 +118,46 @@ def inspect(path: Path | str) -> dict:
         raise BackupError(tr("This backup file is damaged, so it was not used. Nothing was changed.")) from None
 
 
+def _members(z: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, str]]:
+    """The files of a backup as (entry, name inside the backup). Accepts a backup that was unpacked
+    and zipped again (Safari unpacks downloads; Finder's Compress then adds one folder around
+    everything and its own hidden files): the folder is taken off and Mac housekeeping files skipped."""
+    out = []
+    for info in z.infolist():
+        n = info.filename
+        base = n.rstrip("/").rsplit("/", 1)[-1]
+        if n.startswith("__MACOSX/") or base == ".DS_Store" or base.startswith("._") or n.endswith("/"):
+            continue
+        out.append((info, n))
+    names = {n for _, n in out}
+    if MANIFEST not in names:
+        tops = {n.split("/", 1)[0] for n in names if "/" in n}
+        if len(tops) == 1:
+            top = tops.pop() + "/"
+            if top + MANIFEST in names:
+                out = [(i, n[len(top):] if n.startswith(top) else n) for i, n in out]
+    return out
+
+
 def _inspect(path: Path) -> dict:
     if not zipfile.is_zipfile(path):
         raise BackupError(tr("This file is not an MCQ-OMR backup (it is not a .zip file)."))
     with zipfile.ZipFile(path) as z:
-        infos = z.infolist()
-        names = [i.filename for i in infos]
+        members = _members(z)
+        infos = [i for i, _ in members]
+        names = [n for _, n in members]
         if MANIFEST not in names or DB_NAME not in names:
             raise BackupError(tr("This .zip file is not an MCQ-OMR backup (it has no database in it)."))
         if len(infos) > MAX_FILES or sum(i.file_size for i in infos) > MAX_TOTAL_BYTES:
             raise BackupError(tr("This backup is larger than MCQ-OMR accepts."))
         for n in names:
-            if n in (MANIFEST, DB_NAME, LOGO_NAME, "scans/") or (
+            if n in (MANIFEST, DB_NAME, LOGO_NAME) or (
                     _SCAN_NAME.match(n) and not _WINDOWS_RESERVED.match(n[6:]) and not n.endswith(".")):
                 continue
             raise BackupError(tr("This backup contains a file MCQ-OMR does not expect (%(name)s), so it was not used.",
                                   name=n[:80]))
         try:
-            manifest = json.loads(z.read(MANIFEST).decode("utf-8"))
+            manifest = json.loads(z.read(next(i for i, n in members if n == MANIFEST)).decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
             raise BackupError(tr("This backup is damaged (its description cannot be read).")) from None
     if not isinstance(manifest, dict) or manifest.get("app") != "MCQ-OMR":
@@ -208,9 +230,8 @@ def _restore(path: Path) -> dict:
         # 1. unpack next to the data (same disk, so the photo folder can be swapped in one move)
         try:
             with zipfile.ZipFile(path) as z:
-                for info in z.infolist():
-                    n = info.filename
-                    if n == "scans/" or n == MANIFEST:
+                for info, n in _members(z):
+                    if n == MANIFEST:
                         continue
                     target = work / n                   # names were checked by inspect(): no "..", no paths
                     target.parent.mkdir(parents=True, exist_ok=True)

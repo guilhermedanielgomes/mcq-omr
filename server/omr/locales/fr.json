@@ -417,6 +417,7 @@
  "Right, %(positions)s": "Juste, %(positions)s",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve (only %(n)s students, so take this with care).": "À peu près symétrique : les notes se répartissent régulièrement autour de la moyenne, proche d'une courbe en cloche (seulement %(n)s étudiants, à prendre avec précaution).",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve.": "À peu près symétrique : les notes se répartissent régulièrement autour de la moyenne, proche d'une courbe en cloche.",
+ "Safari unpacks a downloaded .zip into a folder. To restore such a folder, right-click it in Finder, choose Compress, and restore the .zip it makes.": "Safari décompresse un .zip téléchargé en dossier. Pour restaurer ce dossier, faites un clic droit dessus dans le Finder, choisissez Compresser, puis restaurez le .zip obtenu.",
  "Sat": "Présents",
  "Sat both": "Présents aux deux",
  "Sat every one": "Présents à tous",

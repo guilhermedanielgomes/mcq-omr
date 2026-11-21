@@ -417,6 +417,7 @@
  "Right, %(positions)s": "答对（%(positions)s）",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve (only %(n)s students, so take this with care).": "大致对称：得分均匀分布在平均分两侧，接近钟形曲线（只有 %(n)s 名学生，请谨慎看待）。",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve.": "大致对称：得分均匀分布在平均分两侧，接近钟形曲线。",
+ "Safari unpacks a downloaded .zip into a folder. To restore such a folder, right-click it in Finder, choose Compress, and restore the .zip it makes.": "Safari 会把下载的 .zip 解压成文件夹。要恢复这样的文件夹，请在访达中右键点按它，选择“压缩”，然后恢复生成的 .zip 文件。",
  "Sat": "参加",
  "Sat both": "两次都参加",
  "Sat every one": "全部参加",

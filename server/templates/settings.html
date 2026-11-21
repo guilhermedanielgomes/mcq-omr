@@ -187,6 +187,7 @@
   <p class="hint">{{ _("A backup is one .zip file with everything: exam sets, scanned sheets with their photos, students, courses and settings.") }}
     {{ _("Keep one somewhere safe (a USB stick, cloud storage).") }} {{ _("To move to another computer, install MCQ-OMR there and restore the backup.") }}</p>
   <p><a class="btn" href="/settings/backup">{{ _("Download a backup") }}</a> <span class="small muted">{{ _("This can take a moment with many photos.") }}</span></p>
+  <p class="hint">{{ _("Safari unpacks a downloaded .zip into a folder. To restore such a folder, right-click it in Finder, choose Compress, and restore the .zip it makes.") }}</p>
   <form method="post" action="/settings/restore" enctype="multipart/form-data" class="row" style="align-items:flex-end"
         onsubmit="return confirm({{ _("Replace all current data with this backup? The current data is saved first in the backups folder of the data folder.")|tojson|forceescape }})">
     <div><label>{{ _("Restore a backup") }}</label><input type="file" name="file" accept=".zip,application/zip" required style="max-width:280px"></div>

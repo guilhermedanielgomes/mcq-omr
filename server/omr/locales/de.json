@@ -417,6 +417,7 @@
  "Right, %(positions)s": "Richtig, %(positions)s",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve (only %(n)s students, so take this with care).": "Annähernd symmetrisch: Die Punkte verteilen sich gleichmäßig um den Mittelwert, nahe einer Glockenkurve (nur %(n)s Studierende, daher mit Vorsicht zu lesen).",
  "Roughly symmetric: scores spread evenly around the mean, close to a bell curve.": "Annähernd symmetrisch: Die Punkte verteilen sich gleichmäßig um den Mittelwert, nahe einer Glockenkurve.",
+ "Safari unpacks a downloaded .zip into a folder. To restore such a folder, right-click it in Finder, choose Compress, and restore the .zip it makes.": "Safari entpackt eine heruntergeladene .zip-Datei in einen Ordner. Um einen solchen Ordner wiederherzustellen, klicken Sie ihn im Finder mit der rechten Maustaste an, wählen Sie Komprimieren und stellen Sie die erzeugte .zip-Datei wieder her.",
  "Sat": "Teilgenommen",
  "Sat both": "Bei beiden dabei",
  "Sat every one": "Bei allen dabei",
