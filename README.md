@@ -6,7 +6,7 @@ I wrote this to run multiple-choice tests in my classes without marking them by 
 
 Every student gets a different version of the same exam (questions in a different order, choices shuffled) and a one-page answer sheet with bubbles, made for that exam set only. After the test, the sheets are photographed with a phone. The program reads the bubbles, works out the version from the QR code on the sheet and marks it.
 
-It works for any school, college or university. It runs on your own computer and you use it in your web browser. Nothing is sent to the internet: the exams, the photos and the students' names stay on your computer.
+It works for any school, college or university. It runs on your own computer and you use it in your web browser (it talks with your own computer, nothing goes to the internet).
 
 The interface is available in English, Português (Brasil), Español, Français, Deutsch, Italiano and 中文（简体）. Choose the language when installing, in the app window or in Settings ("Automatic" follows the browser).
 
