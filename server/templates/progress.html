@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% from "_copy.html" import copy_btn %}
+{% block title %}{{ _("Progress") }} · MCQ-OMR{% endblock %}
+{% macro person(p) %}<code>{{ p.student_no }}</code>{% if p.name %} {{ p.name }}{% endif %}{% if p.course and not course %} <span class="muted small">· {{ p.course }}</span>{% endif %}{% endmacro %}
+{% macro signed(x) %}{% if x is none %}–{% elif x > 0 %}+{{ x|num }}{% elif x < 0 %}−{{ (-x)|num }}{% else %}0{% endif %}{% endmacro %}
+{% macro cell(c) %}{% if not c %}<span class="absent">{{ _("absent") }}</span>{% elif c.percent is none %}<a class="small" href="/scans/{{ c.scan_id }}" title="{{ _("sat this MCQ - the sheet still needs a review") }}">{{ _("to review") }}</a>{% else %}<a href="/scans/{{ c.scan_id }}/sheet" title="{{ _("the student's page") }}">{{ c.percent|num }}%</a>{% endif %}{% endmacro %}
+{% block content %}
+<h1>{{ _("Progress") }} <span class="muted small">{{ _("the same students over several MCQs") }}</span></h1>
+
+<form method="get" action="/progress" class="card" id="pickform">
+  <input type="hidden" name="picked" value="1">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div>
+      <label>{{ _("MCQs to compare") }} <span class="muted small">{{ _("(oldest first; ticked at first: the module of the latest one)") }}</span></label>
+      {% for s in usable %}
+      <label class="inline" style="display:block"><input type="checkbox" name="sets" value="{{ s.id }}" {% if s.id in picked %}checked{% endif %}>
+        {{ s.title }} <span class="muted small">· {{ s.created[:10] }} · {{ _("%(n)s sheets", n=s.n_scans) }}{% if s.module %} · {{ s.module }}{% endif %}</span></label>
+      {% else %}<p class="muted">{{ _("No exam set has scanned sheets yet.") }}</p>{% endfor %}
+    </div>
+    <div>
+      {% if course_list or course %}
+      <label>{{ _("Course") }}</label>
+      <select name="course" onchange="this.form.submit()">
+        <option value="">{{ _("All students") }}</option>
+        {% for c in course_list %}<option value="{{ c }}" {% if c == course %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        <option value="{{ no_course }}" {% if course == no_course %}selected{% endif %}>{{ _("No course set") }}</option>
+      </select>
+      {% endif %}
+      <div style="margin-top:10px"><button type="submit">{{ _("Show") }}</button></div>
+    </div>
+  </div>
+</form>
+
+{% if not d.sets %}
+<p class="muted">{{ _("Tick at least one MCQ above.") }}</p>
+{% else %}
+{% if d.course_label %}<p class="coursenote">{% if course != no_course %}{{ _("Showing course <b>%(course)s</b> only: its students on the student list count as the group, so somebody who sat none of these MCQs shows up too.", course=d.course_label) }}{% else %}{{ _("Showing course <b>%(course)s</b> only.", course=d.course_label) }}{% endif %}</p>{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="tile-label">{{ _("Students in the group") }}</div><div class="tile-value">{{ d.n_group }}</div>
+    <div class="tile-sub">{% if d.course and d.course != no_course %}{{ _("on the list for this course, or sat one of these") }}{% else %}{{ _("sat at least one of these MCQs") }}{% endif %}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Sat every one") }}</div><div class="tile-value">{{ d.sat_all }}</div><div class="tile-sub">{{ _("of %(n)s", n=d.n_group) }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Missed some") }}</div><div class="tile-value">{{ d.missed_some }}</div><div class="tile-sub">{{ _("sat at least one, missed at least one") }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Missed the latest") }}</div><div class="tile-value">{{ d.missed_latest }}</div><div class="tile-sub">{{ d.sets[-1].title }}</div></div>
+  {% if d.sat_none %}<div class="tile"><div class="tile-label">{{ _("Sat none") }}</div><div class="tile-value">{{ d.sat_none }}</div><div class="tile-sub">{{ _("on the list for this course") }}</div></div>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Each MCQ") }}</h2>
+  <div class="table-wrap"><table>
+    <tr><th>{{ _("MCQ") }}</th><th>{{ _("Date") }}</th><th>{{ _("Sat") }}</th><th>{{ _("Missed") }}</th><th>{{ _("Mean") }}</th><th>{{ _("Pass rate (≥ %(pct)s%%)", pct=d.pass_mark|num) }}</th><th></th></tr>
+    {% for s in d.sets %}
+    <tr><td><a href="/sets/{{ s.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ s.title }}</a></td><td>{{ s.created }}</td>
+      <td>{{ s.n_sat }}</td><td>{{ s.n_missed }}</td><td>{{ (s.mean|num ~ '%') if s.mean is not none else '–' }}</td>
+      <td>{{ (s.pass_rate|num ~ '%') if s.pass_rate is not none else '–' }}</td>
+      <td class="small muted">{% if s.n_sat > s.n_scored %}{{ _("%(n)s to review", n=s.n_sat - s.n_scored) }}{% endif %}{% if s.unreadable %}{% if s.n_sat > s.n_scored %} · {% endif %}{{ ngettext("%(n)s sheet with an unreadable number (not counted here)", "%(n)s sheets with an unreadable number (not counted here)", s.unreadable) }}{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="hint">{{ _("\"Sat\" counts every sheet with a readable student number, also those waiting for a review. Fix an unreadable
+    number on the sheet's review page and the student stops showing as absent.") }}</p>
+</div>
+
+{% for p in d.pairs %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("%(a)s to %(b)s", a=p.a, b=p.b) }}</h2>
+  <div class="tiles">
+    <div class="tile"><div class="tile-label">{{ _("Sat both") }}</div><div class="tile-value">{{ p.both }}</div></div>
+    <div class="tile"><div class="tile-label">{{ _("Came to the first, not the second") }}</div><div class="tile-value">{{ p.only_a|length }}</div></div>
+    <div class="tile"><div class="tile-label">{{ _("Missed the first, came to the second") }}</div><div class="tile-value">{{ p.only_b|length }}</div></div>
+    {% if p.neither %}<div class="tile"><div class="tile-label">{{ _("Missed both") }}</div><div class="tile-value">{{ p.neither|length }}</div></div>{% endif %}
+  </div>
+  {% if p.n_compared %}
+  <p><b>{{ ngettext("The %(n)s student with a score in both:", "The %(n)s students with a score in both:", p.n_compared) }}</b>
+    {{ _("mean from %(a)s%% to %(b)s%% (%(change)s points; median change %(median)s).", a=p.mean_a|num, b=p.mean_b|num, change=signed(p.mean_change), median=signed(p.median_change)) }}
+    {{ _('<span class="up">%(up)s improved</span>, %(same)s about the same (within %(pts)s points),
+    <span class="down">%(down)s declined</span>.', up=p.improved, same=p.steady, pts=d.steady_points|num, down=p.declined) }}</p>
+  <div class="updown">
+    <span class="seg up-bg" style="flex:{{ p.improved }}" title="{{ _("%(n)s improved", n=p.improved) }}"></span>
+    <span class="seg same-bg" style="flex:{{ p.steady }}" title="{{ _("%(n)s about the same", n=p.steady) }}"></span>
+    <span class="seg down-bg" style="flex:{{ p.declined }}" title="{{ _("%(n)s declined", n=p.declined) }}"></span>
+  </div>
+  <p class="hint">{{ _('Only students who sat both count here, so a change is never caused by who turned up. The two MCQs can differ in
+    difficulty: "place in class" compares each student with the whole class in each MCQ instead (percentile; + = moved up).') }}</p>
+  {% endif %}
+  <div class="grid2">
+    {% if p.up %}<div><h3>{{ _("Improved most") }} {{ copy_btn(p.up|map(attribute="student_no")|list, emails) }}</h3><table>
+      <tr><th>{{ _("Student") }}</th><th>{{ p.a }}</th><th>{{ p.b }}</th><th>{{ _("Change") }}</th><th>{{ _("Place in class") }}</th></tr>
+      {% for c in p.up %}<tr><td>{{ person(c) }}</td><td><a href="/scans/{{ c.scan_a }}/sheet">{{ c.a|num }}%</a></td><td><a href="/scans/{{ c.scan_b }}/sheet">{{ c.b|num }}%</a></td><td class="up">{{ signed(c.change) }}</td><td>{{ signed(c.pos_change) }}</td></tr>{% endfor %}
+    </table></div>{% endif %}
+    {% if p.down %}<div><h3>{{ _("Declined most") }} {{ copy_btn(p.down|map(attribute="student_no")|list, emails) }}</h3><table>
+      <tr><th>{{ _("Student") }}</th><th>{{ p.a }}</th><th>{{ p.b }}</th><th>{{ _("Change") }}</th><th>{{ _("Place in class") }}</th></tr>
+      {% for c in p.down %}<tr><td>{{ person(c) }}</td><td><a href="/scans/{{ c.scan_a }}/sheet">{{ c.a|num }}%</a></td><td><a href="/scans/{{ c.scan_b }}/sheet">{{ c.b|num }}%</a></td><td class="down">{{ signed(c.change) }}</td><td>{{ signed(c.pos_change) }}</td></tr>{% endfor %}
+    </table></div>{% endif %}
+  </div>
+  {% if p.only_a %}<details><summary class="small">{{ _("Came to %(a)s but not to %(b)s (%(n)s)", a=p.a, b=p.b, n=p.only_a|length) }}</summary>
+    {{ copy_btn(p.only_a|map(attribute="student_no")|list, emails) }}
+    <ul class="plain">{% for x in p.only_a %}<li>{{ person(x) }} <span class="muted small">· {% if x.percent is not none %}{{ _("%(pct)s%% in %(exam)s", pct=x.percent|num, exam=p.a) }}{% else %}{{ _("to review in %(exam)s", exam=p.a) }}{% endif %}</span></li>{% endfor %}</ul></details>{% endif %}
+  {% if p.only_b %}<details><summary class="small">{{ _("Missed %(a)s but came to %(b)s (%(n)s)", a=p.a, b=p.b, n=p.only_b|length) }}</summary>
+    {{ copy_btn(p.only_b|map(attribute="student_no")|list, emails) }}
+    <ul class="plain">{% for x in p.only_b %}<li>{{ person(x) }} <span class="muted small">· {% if x.percent is not none %}{{ _("%(pct)s%% in %(exam)s", pct=x.percent|num, exam=p.b) }}{% else %}{{ _("to review in %(exam)s", exam=p.b) }}{% endif %}</span></li>{% endfor %}</ul></details>{% endif %}
+  {% if p.neither %}<details><summary class="small">{{ _("Missed both (%(n)s)", n=p.neither|length) }}</summary>
+    {{ copy_btn(p.neither|map(attribute="student_no")|list, emails) }}
+    <ul class="plain">{% for x in p.neither %}<li>{{ person(x) }}</li>{% endfor %}</ul></details>{% endif %}
+</div>
+{% endfor %}
+
+{% if d.flagged %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Worth a look") }} <span class="muted small">{{ ngettext("%(n)s student", "%(n)s students", d.flagged|length) }}</span>
+    {{ copy_btn(d.flagged|map(attribute="student_no")|list, emails) }}</h2>
+  <p class="hint" style="margin-top:0">{{ _("Missed the latest MCQ, below the pass mark in it, or dropped %(n)s points or more between their last two.", n=10) }}</p>
+  <div class="table-wrap"><table>
+    <tr><th>{{ _("Student") }}</th>{% for s in d.sets %}<th>{{ s.title }}</th>{% endfor %}<th>{{ _("Why") }}</th></tr>
+    {% for r in d.flagged %}<tr><td>{{ person(r) }}</td>{% for c in r.cells %}<td>{{ cell(c) }}</td>{% endfor %}<td class="small">{{ r.flags|join("; ") }}</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Every student") }}</h2>
+  <div class="row small" id="rowfilter">
+    {{ _("Show:") }} <a href="#" data-f="all" class="on">{{ _("all (%(n)s)", n=d.rows|length) }}</a> ·
+    <a href="#" data-f="missed">{{ _("missed at least one (%(n)s)", n=d.missed_some + d.sat_none) }}</a> ·
+    <a href="#" data-f="flag">{{ _("worth a look (%(n)s)", n=d.flagged|length) }}</a>
+    {% if emails %}<button type="button" class="small secondary copyemails" data-from="#everyone" title="{{ _("copy the email addresses of the students shown (the filter chosen), separated by ;") }}">{{ _("Copy emails of the students shown") }}</button>{% endif %}
+  </div>
+  <div class="table-wrap"><table id="everyone">
+    <tr><th>{{ _("Student") }}</th><th>{{ _("Name") }}</th>{% if not course %}<th>{{ _("Course") }}</th>{% endif %}{% for s in d.sets %}<th>{{ s.title }}</th>{% endfor %}{% if d.sets|length > 1 %}<th title="{{ _("from the first to the last MCQ the student has a score in") }}">{{ _("Change") }}</th>{% endif %}</tr>
+    {% for r in d.rows %}
+    <tr data-student="{{ r.student_no }}" data-email="{{ emails.get(r.student_no, '') }}" data-missed="{{ 1 if r.missed else 0 }}" data-flag="{{ 1 if (r.flags and r.n_sat) else 0 }}">
+      <td><code>{{ r.student_no }}</code>{% if not r.listed %} <span class="muted small" title="{{ _("this number is not on the student list in Settings") }}">{{ _("not on the list") }}</span>{% endif %}</td>
+      <td>{{ r.name }}</td>{% if not course %}<td class="small">{{ r.course }}</td>{% endif %}
+      {% for c in r.cells %}<td>{{ cell(c) }}</td>{% endfor %}
+      {% if d.sets|length > 1 %}<td class="{{ 'up' if r.change and r.change > d.steady_points else ('down' if r.change and r.change < -d.steady_points else '') }}">{{ signed(r.change) }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% if d.listed_sat_none %}
+  <details style="margin-top:10px"><summary class="small">{% if course_list %}{{ _("On the student list but sat none of these MCQs (%(n)s) - not counted above: the list is shared by all modules, choose a course to count them", n=d.listed_sat_none|length) }}{% else %}{{ _("On the student list but sat none of these MCQs (%(n)s) - not counted above: the list is shared by all modules", n=d.listed_sat_none|length) }}{% endif %}</summary>
+    {{ copy_btn(d.listed_sat_none|map(attribute="student_no")|list, emails) }}
+    <ul class="plain">{% for x in d.listed_sat_none %}<li>{{ person(x) }}</li>{% endfor %}</ul></details>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const links = document.querySelectorAll("#rowfilter a");
+  links.forEach(a => a.addEventListener("click", e => {
+    e.preventDefault();
+    links.forEach(x => x.classList.toggle("on", x === a));
+    const f = a.dataset.f;
+    document.querySelectorAll("#everyone tr[data-missed]").forEach(tr => {
+      tr.style.display = f === "all" || (f === "missed" && tr.dataset.missed === "1") || (f === "flag" && tr.dataset.flag === "1") ? "" : "none";
+    });
+  }));
+})();
+</script>
+{% endblock %}

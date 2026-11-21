@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="{{ html_lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}MCQ-OMR{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css?v=5">
+<script src="/i18n.js?lang={{ current_lang() }}&amp;v=1"></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">MCQ-OMR</a>
+  <nav>
+    <a href="/">{{ _("Exam sets") }}</a>
+    <a href="/stats">{{ _("Statistics") }}</a>
+    <a href="/progress">{{ _("Progress") }}</a>
+    <a href="/settings">{{ _("Settings") }}</a>
+    <a href="/reveal">{{ _("Reveal page") }}</a>
+    <a href="/scan">{{ _("Scan page") }}</a>
+  </nav>
+</header>
+<main>
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+{% block content %}{% endblock %}
+</main>
+<script src="/static/copy.js?v=3"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

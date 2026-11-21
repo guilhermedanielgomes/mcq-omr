@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MCQ-OMR
+Comment=Multiple-choice exams with answer sheets read from phone photos
+Exec=/opt/mcq-omr/MCQ-OMR
+Icon=mcq-omr
+Terminal=false
+Categories=Education;Office;
+StartupNotify=true

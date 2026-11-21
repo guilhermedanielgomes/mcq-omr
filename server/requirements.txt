@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+jinja2>=3.1
+python-multipart>=0.0.9
+reportlab>=4.0
+qrcode[pil]>=7.4
+numpy>=1.26
+opencv-contrib-python-headless>=4.8
+openpyxl>=3.1
+pypdf>=4.0
+# only needed for tests/synthetic_test.py (renders the PDF to an image):
+pymupdf>=1.24

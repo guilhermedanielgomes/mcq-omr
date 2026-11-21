@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Sign in") }} · MCQ-OMR{% endblock %}
+{% block content %}
+<h1>{{ _("Access token") }}</h1>
+<form class="card" method="post" action="/login" style="max-width:420px">
+  <label>{{ _("This server was started with an access token (MCQ_TOKEN). Enter it to continue.") }}</label>
+  <input type="text" name="token" autocomplete="off">
+  <div style="margin-top:10px"><button type="submit">{{ _("Continue") }}</button></div>
+</form>
+{% endblock %}

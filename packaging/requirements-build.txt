@@ -1,0 +1,23 @@
+# Exact versions for the installers, so every build reads sheets the same way as the tested one.
+# (server/requirements.txt keeps minimum versions for people running from source.)
+# Plain uvicorn on purpose: the [standard] extras (uvloop, httptools, ...) are not needed and
+# complicate freezing.
+fastapi==0.162.0
+starlette==1.10.0
+uvicorn==0.54.0
+h11==0.16.0
+anyio==4.15.1
+pydantic==2.14.1
+pydantic_core==2.50.1
+jinja2==3.1.6
+MarkupSafe==3.0.4
+python-multipart==0.0.32
+reportlab==5.1.0
+qrcode==8.2
+pillow==13.0.0
+numpy==2.5.4
+opencv-contrib-python-headless==5.0.0.93
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+pypdf==6.21.2
+pyinstaller==6.22.3

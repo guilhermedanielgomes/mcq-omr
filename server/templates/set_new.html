@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ _("New exam set") }} · MCQ-OMR{% endblock %}
+{% block content %}
+<h1>{{ _("New exam set") }}</h1>
+<form class="card" method="post" action="/sets">
+  <div class="grid2">
+    <div><label>{{ _("Exam title *") }}</label><input type="text" name="title" required placeholder="{{ _("BIO101 – Class test 1") }}"></div>
+    <div><label>{{ _("Module") }}</label><input type="text" name="module" placeholder="{{ _("BIO101 Introduction to Biology") }}"></div>
+    <div><label>{{ _("Semester") }}</label><input type="text" name="semester" placeholder="2026/1"></div>
+    <div><label>{{ _("Lecturer") }}</label><input type="text" name="lecturer" value="{{ defaults.default_lecturer }}"></div>
+    <div><label>{{ _("Student number prefix (printed, not filled by the student)") }}</label><input type="text" name="id_prefix" value="{{ defaults.default_id_prefix }}"></div>
+    <div><label>{{ _("Digits the student fills (1–8)") }}</label><input type="number" name="id_digits" value="{{ defaults.default_id_digits }}" min="1" max="8"></div>
+  </div>
+  <label style="margin-top:10px">{{ _("Institution header (up to 3 lines)") }}</label>
+  <textarea name="institution">{{ defaults.default_institution }}</textarea>
+  <label style="margin-top:10px">{{ _("Instructions printed on the question paper (optional)") }}</label>
+  <textarea name="instructions" placeholder="{{ _("Answer all questions on the answer sheet. Time allowed: 60 minutes.") }}"></textarea>
+  <div style="margin-top:14px"><button type="submit">{{ _("Create set") }}</button> <a class="btn secondary" href="/">{{ _("Cancel") }}</a></div>
+</form>
+{% endblock %}

@@ -1,0 +1,149 @@
+# Builds the desktop installers on GitHub's machines (each one has to be built on its own system):
+#   Windows  MCQ-OMR-<version>-windows-setup.exe       (Inno Setup, listed in Settings > Apps)
+#   macOS    MCQ-OMR-<version>-macos-arm64.dmg / -x86_64.dmg   (drag to Applications)
+#   Linux    mcq-omr_<version>_amd64.deb + MCQ-OMR-<version>-linux-x86_64.tar.gz
+#
+# Run it by hand from the Actions tab ("Run workflow"): the files appear as downloadable artifacts.
+# Pushing a tag such as v1.0.0 also builds them and attaches them to a GitHub Release of that tag.
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest       # Apple silicon
+          - os: macos-15-intel     # older Intel Macs
+          - os: ubuntu-22.04       # older glibc, so the build also runs on older distributions
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "MCQ_VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Install the pinned packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r packaging/requirements-build.txt
+
+      - name: Reader test before building (synthetic photos of filled sheets)
+        run: |
+          python -m pip install pymupdf
+          cd server && python tests/synthetic_test.py "$RUNNER_TEMP/synthetic"
+
+      - name: Build the app
+        run: |
+          python -m pip uninstall -y pymupdf
+          pyinstaller packaging/mcq-omr.spec --noconfirm
+
+      - name: Check that the built app starts, answers and shows its window
+        run: |
+          case "$RUNNER_OS" in
+            Windows) EXE="dist/MCQ-OMR/MCQ-OMR.exe" ;;
+            macOS)   EXE="dist/MCQ-OMR.app/Contents/MacOS/MCQ-OMR" ;;
+            *)       EXE="dist/MCQ-OMR/MCQ-OMR" ;;
+          esac
+          export MCQ_DATA="$RUNNER_TEMP/mcq-data" MCQ_PORT=8790
+          # with its window (not --headless), so a build whose window cannot open fails here
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$EXE" --no-browser & else "$EXE" --no-browser & fi
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8790/api/ping; then echo; echo "started after ${i}s"; break; fi
+            sleep 1
+          done
+          sleep 5
+          cat "$MCQ_DATA/mcq-omr.log"
+          curl -fsS http://127.0.0.1:8790/api/ping | grep -q '"app":"MCQ-OMR"'
+          curl -fsS -o /dev/null http://127.0.0.1:8790/
+          curl -fsS -o /dev/null http://127.0.0.1:8790/settings
+          if grep -q "no window" "$MCQ_DATA/mcq-omr.log"; then echo "::error::the app's window did not open"; exit 1; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then taskkill //F //IM MCQ-OMR.exe || true; else pkill -f "MCQ-OMR" || true; fi
+
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=$env:MCQ_VERSION" "/DDistDir=$env:GITHUB_WORKSPACE\dist" packaging\windows\mcq-omr.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package (macOS disk image, signed and notarized when the Apple secrets are set)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -n "$MACOS_CERT_P12" ] && [ -n "$SIGN_IDENTITY" ]; then
+            KC="$RUNNER_TEMP/build.keychain-db"; KP="$(openssl rand -hex 16)"
+            echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security create-keychain -p "$KP" "$KC"
+            security set-keychain-settings -lut 3600 "$KC"
+            security unlock-keychain -p "$KP" "$KC"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KP" "$KC" >/dev/null
+            security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+            rm -f "$RUNNER_TEMP/cert.p12"
+            sh packaging/macos/sign_and_notarize.sh "$MCQ_VERSION" dist
+          else
+            echo "::warning::Apple signing secrets not set: the disk image is not signed (macOS will warn on first open)"
+            sh packaging/macos/build_dmg.sh "$MCQ_VERSION" dist
+          fi
+
+      - name: Package (Linux .deb and .tar.gz)
+        if: runner.os == 'Linux'
+        run: sh packaging/linux/build_deb.sh "$MCQ_VERSION" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.deb
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # only this job: attach the files to the Release of the tag
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Attach to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "MCQ-OMR $GITHUB_REF_NAME" --notes "Installers for Windows, macOS and Linux. See the README for how to install."
+          gh release upload "$GITHUB_REF_NAME" files/* -R "$GITHUB_REPOSITORY" --clobber

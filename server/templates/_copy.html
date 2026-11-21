@@ -1,0 +1,7 @@
+{# a "Copy emails" button for a list of student numbers; nothing while no student has an email #}
+{% macro copy_btn(nos, emails, label=none) -%}
+{% if emails %}{% set found = nos|emails_of(emails) %}
+<button type="button" class="small secondary copyemails" data-emails="{{ found|join('; ') }}" data-missing="{{ nos|length - found|length }}"
+  title="{{ _("copy the email addresses of these students, separated by ;") }}">{{ label or _("Copy emails") }} ({{ found|length }})</button>
+{%- endif %}
+{%- endmacro %}

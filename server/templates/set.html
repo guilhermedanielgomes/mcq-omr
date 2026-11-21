@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}{{ exam.meta.title }} · MCQ-OMR{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{{ exam.meta.title or _("(untitled)") }} <span class="muted small">{{ _("set <code>%(id)s</code>", id=exam.id) }}</span></h1>
+  <form method="post" action="/sets/{{ exam.id }}/delete" onsubmit="return confirm({{ _("Delete this exam set, its versions and all scans?")|tojson|forceescape }})">
+    <button class="danger small" type="submit">{{ _("Delete set") }}</button>
+  </form>
+</div>
+
+{% if locked %}
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <div>{{ _("<b>%(nv)s versions generated</b>: %(nq)s questions, student number %(prefix)s + %(digits)s digits.", nv=exam.versions|length, nq=exam.questions|length, prefix=exam.settings.id_prefix, digits=exam.settings.id_digits) }}
+      <span class="muted">{{ _("Texts and the correct answers can still be fixed below (scores are recomputed); the structure is frozen.") }}</span></div>
+    <form method="post" action="/sets/{{ exam.id }}/unlock" onsubmit="return confirm({{ _("Unlocking removes the generated versions AND every scan of this set. Printed sheets will no longer match. Continue?")|tojson|forceescape }})">
+      <button class="danger small" type="submit">{{ _("Unlock / regenerate") }}</button>
+    </form>
+  </div>
+  <h3>{{ _("Downloads") }}</h3>
+  <div class="grid2 downloads">
+    <div>
+      <a href="/sets/{{ exam.id }}/pdf/both" target="_blank">{{ _("<b>Print set: answer sheets + question papers</b> (version 1 sheet, version 1 paper, version 2 sheet, …)") }}</a>
+      <a href="/sets/{{ exam.id }}/pdf/duplex" target="_blank">{{ _("<b>Print set for double-sided printing</b> (answer sheet, blank, questions, blank if needed - every answer sheet on its own physical sheet)") }}</a>
+      <a href="/sets/{{ exam.id }}/pdf/papers" target="_blank">{{ _("Question papers only") }}</a>
+      <a href="/sets/{{ exam.id }}/pdf/sheets" target="_blank">{{ _("Answer sheets only") }}</a>
+    </div>
+    <div>
+      <a href="/sets/{{ exam.id }}/pdf/keys" target="_blank">{{ _("Answer keys (PDF, one line per version)") }}</a>
+      <a href="/sets/{{ exam.id }}/keys.csv">{{ _("Answer keys (CSV)") }}</a>
+      <a href="/sets/{{ exam.id }}/results.xlsx">{{ _("<b>Results spreadsheet (XLSX)</b>: scores, per-question analysis, keys") }}</a>
+    </div>
+  </div>
+  <p class="hint">{{ _('Print at 100% scale (no "fit to page" shrinking is needed, but any uniform scaling is fine). Pen only on the sheets.') }}</p>
+</div>
+
+<div class="card" id="results">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">{{ _("Results") }} <span class="muted small">{{ _("%(ok)s ok · %(review)s to review", ok=n_ok, review=n_review) }}</span></h2>
+    <div class="row">
+      <span class="small muted">{{ _('Names: %(n)s students stored · <a href="/settings#students">edit list</a>', n=roster|length) }}</span>
+      <a class="btn small" href="/sets/{{ exam.id }}/stats">{{ _("Statistics") }}</a>
+      <a class="btn small secondary" href="/sets/{{ exam.id }}/class-stats">{{ _("Statistics for students") }}</a>
+      <a class="btn small secondary" href="/sets/{{ exam.id }}/reveal">{{ _("Reveal page") }}</a>
+    </div>
+  </div>
+  {% if scans %}
+  {% if course_opts or emails %}
+  <div class="row small" style="gap:10px;margin:8px 0">
+    {% if course_opts %}<label class="inline">{{ _("Course") }}
+      <select id="resultscourse" title="{{ _("show the results of one course only") }}">
+        <option value="">{{ _("All students") }}</option>
+        {% for c in course_opts %}<option value="{{ '' if c.value == no_course else course_key(c.value) }}" data-none="{{ 1 if c.value == no_course else 0 }}">{{ c.label }} ({{ c.n }})</option>{% endfor %}
+      </select></label>{% endif %}
+    {% if emails %}<button type="button" class="small secondary copyemails" data-from="#resultstable tbody" title="{{ _("copy the email addresses of the students listed (the course chosen), separated by ;") }}">{{ _("Copy emails of these students") }}</button>{% endif %}
+  </div>
+  {% endif %}
+  <table id="resultstable">
+    <thead><tr><th>#</th><th>{{ _("Student") }}</th><th><a href="#" class="sortby" data-sort="name" title="{{ _("sort alphabetically by name") }}">{{ _("Name") }}</a></th><th>{{ _("Version") }}</th><th><a href="#" class="sortby" data-sort="score" title="{{ _("sort from best to worst") }}">{{ _("Score") }}</a></th><th>{{ _("Status") }}</th><th>{{ _("Flags") }}</th><th>{{ _("Scanned") }}</th><th></th></tr></thead>
+    <tbody>
+    {% for s in scans %}
+    <tr class="{{ 'superseded' if s.superseded }}" data-id="{{ s.id }}" data-name="{{ roster.get(s.student_no, '') }}" data-student="{{ s.student_no or '' }}"
+        data-pct="{{ (s.score / s.max_score) if (s.score is not none and s.max_score) else -1 }}" data-old="{{ 1 if s.superseded else 0 }}"
+        data-email="{{ emails.get(s.student_no or '', '') }}" data-course="{{ course_of.get(s.student_no or '', '') }}">
+      <td>{{ s.seq }}</td>
+      <td>{% if s.score is not none %}<a href="/scans/{{ s.id }}/sheet" title="{{ _("the student's page: sheet with right and wrong marked") }}"><code>{{ s.student_no or "?" }}</code></a>{% else %}<code>{{ s.student_no or "?" }}</code>{% endif %}</td>
+      <td>{% if s.score is not none %}<a href="/scans/{{ s.id }}/sheet">{{ roster.get(s.student_no, "") }}</a>{% else %}{{ roster.get(s.student_no, "") }}{% endif %}</td>
+      <td>{{ s.version if s.version else "?" }}</td>
+      <td>{% if s.score is not none %}<b>{{ s.score }}</b> / {{ s.max_score }}{% else %}–{% endif %}</td>
+      <td><span class="tag {{ s.status }}">{{ {"ok": _("ok"), "review": _("review"), "failed": _("failed")}.get(s.status, s.status) }}</span></td>
+      <td class="small">{{ s.flags|map("flag")|join("; ") }}</td>
+      <td class="small muted">{{ s.created }}</td>
+      <td class="row" style="gap:6px"><a class="btn small secondary" href="/scans/{{ s.id }}" title="{{ _("correct the student number, version or answers") }}">{{ _("Review") }}</a>
+        <form method="post" action="/scans/{{ s.id }}/delete" onsubmit="return confirm({{ _("Delete scan #%(n)s?", n=s.seq)|tojson|forceescape }})"><button class="small danger" type="submit">{{ _("Delete") }}</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">{{ _("Click <b>Score</b> for best to worst (the default) or <b>Name</b> for alphabetical order; this browser remembers the last choice.") }} {{ _("Sheets still to score come after, older scans of a student who was scanned again come last.") }}</p>
+  {% else %}
+  <p class="muted">{{ _("No scans yet. Point the phone app to this computer and photograph the sheets; each one appears here as soon as it is read.") }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Details") }}</h2>
+  <form method="post" action="/sets/{{ exam.id }}/meta">
+    <div class="grid2">
+      <div><label>{{ _("Exam title") }}</label><input type="text" name="title" value="{{ exam.meta.title }}" required></div>
+      <div><label>{{ _("Module") }}</label><input type="text" name="module" value="{{ exam.meta.module }}"></div>
+      <div><label>{{ _("Semester") }}</label><input type="text" name="semester" value="{{ exam.meta.semester }}"></div>
+      <div><label>{{ _("Lecturer") }}</label><input type="text" name="lecturer" value="{{ exam.meta.lecturer }}"></div>
+      <div><label>{{ _("Student number prefix") }}</label><input type="text" name="id_prefix" value="{{ exam.settings.id_prefix }}" {% if locked %}readonly{% endif %}></div>
+      <div><label>{{ _("Digits filled by the student") }}</label><input type="number" name="id_digits" value="{{ exam.settings.id_digits }}" min="1" max="8" {% if locked %}readonly{% endif %}></div>
+    </div>
+    <label style="margin-top:10px">{{ _("Institution header (up to 3 lines)") }}</label>
+    <textarea name="institution">{{ exam.meta.institution|join("\n") }}</textarea>
+    <label style="margin-top:10px">{{ _("Instructions on the question paper") }}</label>
+    <textarea name="instructions">{{ exam.meta.instructions }}</textarea>
+    <div style="margin-top:10px"><button type="submit" class="secondary">{{ _("Save details") }}</button></div>
+  </form>
+</div>
+
+<div class="card {{ 'readonly' if locked }}">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">{{ _("Questions") }} <span class="muted small" id="qcount">({{ exam.questions|length }})</span></h2>
+    <div class="row">
+      <a class="btn small secondary" href="/sets/{{ exam.id }}/questions.txt">{{ _("Export as text") }}</a>
+      {% if not locked %}<button class="small secondary" type="button" id="addq">{{ _("+ Add question") }}</button>{% endif %}
+      <button class="small" type="button" id="saveq">{{ _("Save questions") }}</button>
+    </div>
+  </div>
+  <p class="hint">{{ _('Mark the correct choice with the radio button. "Keep last" pins a choice such as "All of the above" so it is not shuffled.') }}
+    {{ _("Up to 6 choices per question. ``` fences in a text become a monospace code block on the paper.") }}
+    {{ _("Capacity of one answer sheet with the current choice count: <b>%(n)s</b> questions.", n=capacity) }}</p>
+  <div id="problems" class="problems">{% for p in problems %}<div>{{ p }}</div>{% endfor %}</div>
+  <div id="questions"></div>
+  <div id="savestatus" class="hint"></div>
+</div>
+
+{% if not locked %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Paste questions") }}</h2>
+  <form method="post" action="/sets/{{ exam.id }}/import" id="importform">
+    <input type="hidden" name="current" value="">
+    <div class="grid2">
+      <div>
+<pre class="sample">1. What does GPIO stand for?
+*A) General Purpose Input Output
+B) Graphical Port Interface Object
+C) General Port I/O
+D) None of the above [fixed]
+
+2. Which protocol is connectionless?
+A) TCP
+*B) UDP
+C) HTTP</pre>
+        <p class="hint">{{ _("Blank line between questions. <code>*</code> marks the correct choice (or a Moodle/Aiken <code>ANSWER: B</code> line). <code>[fixed]</code> keeps a choice last.") }}</p>
+      </div>
+      <div>
+        <textarea name="text" style="min-height:230px" placeholder="{{ _("Paste here…") }}"></textarea>
+        <div class="row" style="margin-top:8px">
+          <label class="inline"><input type="radio" name="mode" value="append" checked> {{ _("add to the existing questions") }}</label>
+          <label class="inline"><input type="radio" name="mode" value="replace"> {{ _("replace all questions") }}</label>
+        </div>
+        <div style="margin-top:8px"><button type="submit" class="secondary">{{ _("Import") }}</button></div>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Generate the versions") }}</h2>
+  <form method="post" action="/sets/{{ exam.id }}/generate" class="row">
+    <div><label>{{ _("Number of versions (one per student)") }}</label><input type="number" name="n_versions" value="30" min="1" max="500" style="width:120px"></div>
+    <label class="inline" style="margin-top:18px"><input type="checkbox" name="shuffle_questions" checked> {{ _("shuffle question order") }}</label>
+    <label class="inline" style="margin-top:18px"><input type="checkbox" name="shuffle_choices" checked> {{ _("shuffle choices (letters change)") }}</label>
+    <div style="margin-top:18px"><button type="submit" {% if problems or not exam.questions %}disabled title="{{ _("fix the questions first") }}"{% endif %}>{{ _("Generate versions") }}</button></div>
+  </form>
+  <p class="hint">{{ _("Every version gets its own question paper, its own answer sheet (QR code identifies set + version) and its own answer key.") }} {{ _("Save the questions before generating.") }}</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.EXAM = {{ exam|tojson }};
+  window.LOCKED = {{ 'true' if locked else 'false' }};
+</script>
+<script src="/static/editor.js?v=3"></script>
+<script>
+(function () {
+  // results: one course only (the rows of the others are hidden; Copy emails takes the visible rows)
+  const cs = document.getElementById("resultscourse");
+  if (cs) cs.addEventListener("change", () => {
+    const opt = cs.options[cs.selectedIndex], none = opt.dataset.none === "1";
+    document.querySelectorAll("#resultstable tbody tr").forEach(tr => {
+      tr.style.display = (!cs.value && !none) || tr.dataset.course === cs.value && !(none && tr.dataset.course) ? "" : "none";
+    });
+  });
+})();
+(function () {
+  // results: best to worst by default, alphabetical by name on request (the order is only visual)
+  const table = document.getElementById("resultstable");
+  if (!table) return;
+  const body = table.tBodies[0];
+  const rows = Array.from(body.rows);
+  const coll = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+  const group = r => r.dataset.old === "1" ? 2 : (Number(r.dataset.pct) < 0 ? 1 : 0);
+  const byId = (a, b) => Number(a.dataset.id) - Number(b.dataset.id);
+  const byName = (a, b) => {
+    const na = a.dataset.name, nb = b.dataset.name;
+    if (!na !== !nb) return na ? -1 : 1;                 // students without a name after the named ones
+    return coll.compare(na, nb) || coll.compare(a.dataset.student, b.dataset.student);
+  };
+  const SORTS = {
+    score: (a, b) => group(a) - group(b) || Number(b.dataset.pct) - Number(a.dataset.pct) || byName(a, b) || byId(a, b),
+    name: (a, b) => group(a) - group(b) || byName(a, b) || byId(a, b),
+  };
+  function apply(key) {
+    rows.slice().sort(SORTS[key]).forEach(r => body.append(r));
+    table.querySelectorAll(".sortby").forEach(a => {
+      a.textContent = a.textContent.replace(/ [▼▲]$/, "") + (a.dataset.sort === key ? (key === "score" ? " ▼" : " ▲") : "");
+    });
+    try { localStorage.setItem("mcq_results_sort", key); } catch (e) {}
+  }
+  table.querySelectorAll(".sortby").forEach(a => a.addEventListener("click", e => { e.preventDefault(); apply(a.dataset.sort); }));
+  let key = "score";
+  try { const k = localStorage.getItem("mcq_results_sort"); if (SORTS[k]) key = k; } catch (e) {}
+  apply(key);
+})();
+</script>
+{% endblock %}

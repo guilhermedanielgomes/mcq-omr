@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Scan #%(n)s", n=seq or scan.id) }} · MCQ-OMR{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{% if seq and exam %}{{ _('Scan #%(n)s <span class="muted small">of %(title)s</span>', n=seq, title=exam.meta.title) }}{% else %}{{ _("Scan #%(n)s", n=seq or scan.id) }}{% endif %} <span class="tag {{ scan.status }}">{{ {"ok": _("ok"), "review": _("review"), "failed": _("failed")}.get(scan.status, scan.status) }}</span></h1>
+  <div class="row">
+    {% if scan.score is not none %}<a class="btn secondary small" href="/scans/{{ scan.id }}/sheet">{{ _("Student page") }}</a>{% endif %}
+    {% if exam %}<a class="btn secondary small" href="/sets/{{ exam.id }}#results">{{ _("Back to %(title)s", title=exam.meta.title) }}</a>{% endif %}
+    <form method="post" action="/scans/{{ scan.id }}/delete" onsubmit="return confirm({{ _("Delete this scan?")|tojson|forceescape }})"><button class="small danger" type="submit">{{ _("Delete scan") }}</button></form>
+  </div>
+</div>
+{% if scan.flags %}<div class="msg">{{ scan.flags|map("flag")|join(" · ") }}</div>{% endif %}
+
+<div class="grid2">
+  <div>
+    {% if scan.overlay %}
+      <img class="overlay" src="/files/{{ scan.overlay }}" alt="{{ _("read sheet") }}">
+      <p class="hint">{{ _("Green = answer read · red = several marks (question cancelled) · orange = weak or no mark (counted as blank, check it; the student page shows each one close up) or a second bubble nearly as dark.") }} <a href="/files/{{ scan.image }}" target="_blank">{{ _("Original photo") }}</a></p>
+    {% elif scan.image %}
+      <img class="overlay" src="/files/{{ scan.image }}" alt="{{ _("photo") }}">
+      <p class="hint">{{ _("The sheet could not be aligned (markers not found). Retake the photo with the whole sheet in view, or fill in the fields by hand.") }}</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <form method="post" action="/scans/{{ scan.id }}">
+      <div class="grid2">
+        <div><label>{{ _("Exam set") }}</label>
+          <select name="set_id">
+            {% for s in sets %}<option value="{{ s.id }}" {% if exam and s.id == exam.id %}selected{% endif %}>{{ s.title }} ({{ s.id }})</option>{% endfor %}
+          </select>
+          <div class="hint">{{ _("Changing the set or version: save once, then the answer boxes below match that version.") }}</div>
+        </div>
+        <div><label>{{ _("Version") }}</label>
+          {% if exam %}
+          <select name="version">
+            <option value="0">?</option>
+            {% for v in exam.versions %}<option value="{{ v.version }}" {% if scan.version == v.version %}selected{% endif %}>{{ "%02d"|format(v.version) }}</option>{% endfor %}
+          </select>
+          {% else %}<input type="text" name="version" value="{{ scan.version or '' }}">{% endif %}
+        </div>
+        <div><label>{% if name %}{{ _("Student number (%(name)s)", name=name) }}{% else %}{{ _("Student number") }}{% endif %}</label><input type="text" name="student_no" value="{{ scan.student_no or '' }}" placeholder="12345678"></div>
+        <div><label>{{ _("Score") }}</label><div style="padding-top:7px">{% if scan.score is not none %}<b>{{ scan.score }}</b> / {{ scan.max_score }}{% else %}–{% endif %}</div></div>
+      </div>
+      {% if version %}
+      <h3>{{ _("Answers as read (position on the sheet and letter; <code>*</code> = several marks, <code>-</code> = blank)") }}</h3>
+      <div class="qgrid">
+        {% for p in range(opts|length) %}
+        <div>
+          <b>{{ p + 1 }}</b>
+          <select name="q{{ p }}">
+            <option value="" {% if not scan.answers[p] %}selected{% endif %}>-</option>
+            {% for j in range(opts[p]) %}<option value="{{ LETTERS[j] }}" {% if scan.answers[p] == LETTERS[j] %}selected{% endif %}>{{ LETTERS[j] }}</option>{% endfor %}
+            <option value="*" {% if scan.answers[p] == '*' %}selected{% endif %}>*</option>
+          </select>
+          <span class="dark" title="{{ _("key") }}">{{ key[p] }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="hint">{{ _("The small grey letter is the correct answer for that position in this version.") }}</p>
+      {% endif %}
+      <div style="margin-top:12px"><button type="submit">{{ _("Save corrections &amp; re-score") }}</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

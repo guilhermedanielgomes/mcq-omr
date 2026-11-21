@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "_copy.html" import copy_btn %}
+{% macro show_text(parts, cls="qtext") %}{% for part in parts %}{% if part.code %}<pre class="sample">{{ part.text }}</pre>{% else %}<p class="{{ cls }}">{{ part.text }}</p>{% endif %}{% endfor %}{% endmacro %}
+{% block title %}{{ _("Question %(n)s", n=d.q) }} · {{ exam.meta.title }}{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{{ _("Question %(n)s", n=d.q) }} <span class="muted small">{{ _("of %(n)s", n=d.n_questions) }} · {{ exam.meta.title }}{% if course_label %} · {{ _("course: <b>%(course)s</b>", course=course_label) }}{% endif %}</span></h1>
+  <div class="row">
+    {% if d.q > 1 %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q - 1 }}{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Previous: Q%(n)s", n=d.q - 1) }}</a>{% endif %}
+    {% if d.q < d.n_questions %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q + 1 }}{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Next: Q%(n)s", n=d.q + 1) }}</a>{% endif %}
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Back to statistics") }}</a>
+  </div>
+</div>
+
+<div class="card">
+  {{ show_text(d.text_parts) }}
+  <p class="small muted" style="margin-bottom:0">{{ _("Numbered as you entered the questions, with the choices in the order you entered them. The key is <b>%(key)s</b>.", key=d.key_letter) }}</p>
+</div>
+
+{% if d.empty %}
+<p class="muted">{{ _("No scored sheets yet. Scan some sheets and this page fills in.") }}</p>
+{% else %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("How the class answered") }}</h2>
+  <p>{{ _("%(right)s of %(n)s students (%(pct)s%%) got it right", right=d.options|selectattr("is_key")|map(attribute="count")|first, n=d.n_scored, pct=d.pct_correct|num) }} · {{ _("discrimination %(d)s", d=d.discrimination|num(2)) }}
+    {% for f in d.flags %}<span class="chip {{ 'serious' if ('check the key' in f or f == 'hard') else '' }}">{{ _(f) }}</span>{% endfor %}</p>
+  <div class="table-wrap"><table class="answers-table">
+    <tr><th>{{ _("Answer") }}</th><th>{{ _("Picked by") }}</th><th>{{ _("Their average score") }}</th>{% if d.groups %}<th>{{ _("Top / bottom group") }}</th>{% endif %}<th>{{ _("What it suggests") }}</th></tr>
+    {% for o in d.options if o.is_answer or o.count %}
+    <tr class="{{ 'keyrow' if o.is_key else '' }}">
+      <td>
+        {% if o.is_answer %}<span class="answer-letter">{{ o.label }}</span>{% if o.is_key %} <span class="tag ok">{{ _("key") }}</span>{% endif %}
+        {% for part in o.text_parts %}<div class="small {{ 'mono' if part.code else '' }}">{{ part.text }}</div>{% endfor %}
+        {% else %}<span class="answer-letter">{{ o.label }}</span>{% endif %}
+      </td>
+      <td><div class="pickbar">
+        {% if o.count %}<a href="#{{ o.id }}">{{ ngettext("<b>%(n)s</b> student", "<b>%(n)s</b> students", o.count) }}</a>{% else %}<span class="muted">{{ _("nobody") }}</span>{% endif %}
+        <span class="hbar-track"><span class="hbar-fill" style="width:{{ o.percent }}%"></span></span>
+        <span class="small">{{ o.percent|num }}%</span></div></td>
+      <td>{% if o.mean is not none %}{{ o.mean|num }}%{% else %}–{% endif %}</td>
+      {% if d.groups %}<td>{{ o.top }} / {{ o.bottom }}</td>{% endif %}
+      <td class="small {{ 'warn-text' if o.warn else 'muted' }}">{{ o.note }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="small muted">{{ _("Their average score is the average percentage in the whole test of the students who picked that answer; the class average is %(mean)s%%.", mean=d.class_mean|num) }}
+  {% if d.groups %}{{ ngettext("The top and bottom groups are the %(n)s student with the most and the fewest correct answers in the whole test, the 27%% used for the discrimination. A good distractor attracts more of the bottom group than the top group.", "The top and bottom groups are the %(n)s students with the most and the fewest correct answers in the whole test, the 27%% used for the discrimination. A good distractor attracts more of the bottom group than the top group.", d.k) }}
+  {% else %}{{ _("The top and bottom groups need at least %(min)s scored students.", min=4) }}{% endif %}</p>
+  <p class="small muted" style="margin-bottom:0">{{ _('Click a number to see those students. In their lists, "On their sheet" is where this question was on each student\'s own paper and the letter they filled, since every version is shuffled. A student number opens the student\'s page.') }}</p>
+</div>
+
+{% for o in d.options if o.count %}
+<div class="card group" id="{{ o.id }}">
+  <h2 style="margin-top:0">{% if o.is_answer %}{{ _("Picked %(letter)s", letter=o.label) }}{% else %}{{ o.label }}{% endif %}
+    <span class="muted small">· {{ ngettext("%(n)s student", "%(n)s students", o.count) }}</span>
+    {% if o.is_key %}<span class="tag ok">{{ _("correct answer") }}</span>{% endif %}
+    {{ copy_btn(o.students|map(attribute="student_no")|select|list, emails) }}</h2>
+  {% if o.is_answer %}{{ show_text(o.text_parts, "qtext small") }}{% endif %}
+  {% if o.note %}<p class="note {{ 'warn' if o.warn else '' }}">{{ o.note }}</p>{% endif %}
+  <div class="table-wrap"><table>
+    <tr><th>{{ _("Student") }}</th><th>{{ _("Name") }}</th><th>{{ _("Version") }}</th><th title="{{ _("Where this question was on the student's own paper, and the letter they filled there") }}">{{ _("On their sheet") }}</th><th>{{ _("Score") }}</th><th>%</th><th>{{ _("Band") }}</th>{% if d.groups %}<th>{{ _("Group") }}</th>{% endif %}<th></th></tr>
+    {% for s in o.students %}
+    <tr>
+      <td><a href="/scans/{{ s.scan_id }}/sheet" title="{{ _("the student's page: sheet with right and wrong marked") }}"><code>{{ s.student_no or "?" }}</code></a></td>
+      <td>{{ s.name }}</td>
+      <td>{{ "%02d"|format(s.version) }}</td>
+      <td>{{ _("Q%(n)s", n=s.position) }} · {% if s.marked == "*" %}{{ _("several") }}{% elif s.marked %}{{ s.marked }}{% else %}{{ _("blank") }}{% endif %}</td>
+      <td>{{ s.score }} / {{ s.max_score }}</td>
+      <td>{{ s.percent|num }}%</td>
+      <td>{{ s.band }}</td>
+      {% if d.groups %}<td>{% if s.group == "top" %}<span class="tag top">{{ _("top group") }}</span>{% elif s.group == "bottom" %}<span class="tag bottom">{{ _("bottom group") }}</span>{% endif %}</td>{% endif %}
+      <td>{% if s.status != "ok" %}<span class="tag review" title="{{ _("this sheet still needs reviewing") }}">{{ _("review") }}</span> {% endif %}<a class="small" href="/scans/{{ s.scan_id }}">{{ _("edit") }}</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

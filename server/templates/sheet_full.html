@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ d.student_no }} · {{ _("full size") }} · {{ exam.meta.title }}{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{{ d.student_no }}{% if d.name %} <span class="muted">{{ d.name }}</span>{% endif %}
+    <span class="muted small">· {{ exam.meta.title }} · {{ _("version %(v)s", v="%02d"|format(d.version)) }} · {{ d.score }} / {{ d.max_score }}</span></h1>
+  <div class="row">
+    <a class="btn small" href="/scans/{{ d.scan_id }}/report.pdf" target="_blank">{{ _("PDF report") }}</a>
+    <a class="btn secondary small" href="/scans/{{ d.scan_id }}/sheet">{{ _("Back to the student page") }}</a>
+    <a class="btn secondary small" href="/scans/{{ d.scan_id }}">{{ _("Edit / correct") }}</a>
+  </div>
+</div>
+<p class="hint">{{ _("Three views of the same sheet. Click an image to open it on its own; the browser's zoom (Ctrl and +) works on all three.") }}
+  {{ _("The PDF report has each of them on an A4 page, the last two side by side, and the question-by-question table.") }}</p>
+<div class="fullgrid">
+  <div>
+    <h3>{{ _("1. The photo as taken") }}</h3>
+    {% if d.photo %}<a href="/files/{{ d.photo }}" target="_blank"><img src="/files/{{ d.photo }}" alt="{{ _("photo") }}"></a>{% else %}<p class="muted">{{ _("not kept") }}</p>{% endif %}
+  </div>
+  <div>
+    <h3>{{ _("2. As read") }}</h3>
+    <a href="/files/{{ d.image }}" target="_blank"><img src="/files/{{ d.image }}" alt="{{ _("as read") }}"></a>
+    <p class="hint">{{ _("green = the mark read · orange = weak or no mark · red = several marks") }}</p>
+  </div>
+  <div>
+    <h3>{{ _("3. Question by question") }}</h3>
+    <a href="/scans/{{ d.scan_id }}/marked.jpg" target="_blank"><img src="/scans/{{ d.scan_id }}/marked.jpg" alt="{{ _("marked") }}"></a>
+    <p class="hint"><i class="sw" style="background:{{ cols.right }}"></i> {{ _("right") }} ·
+      <i class="sw" style="background:{{ cols.wrong }}"></i> {{ _("wrong (ring = the correct bubble)") }} ·
+      <i class="sw" style="background:{{ cols.blank }}"></i> {{ _("blank") }} ·
+      <i class="sw" style="background:{{ cols.multiple }}"></i> {{ _("several marks") }}</p>
+  </div>
+</div>
+{% endblock %}

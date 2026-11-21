@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Settings") }} · MCQ-OMR{% endblock %}
+{% block content %}
+<h1>{{ _("Settings") }}</h1>
+<div class="card" id="language">
+  <form method="post" action="/settings/language" class="row" style="align-items:flex-end">
+    <div><label>{{ _("Language") }}</label>
+      <select name="language" style="min-width:220px">
+        <option value="" {% if not s.language %}selected{% endif %}>{{ _("Automatic (the browser's language)") }}</option>
+        {% for code, name in LANGUAGES.items() %}<option value="{{ code }}" {% if s.language == code %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select></div>
+    <button type="submit" class="secondary">{{ _("Save") }}</button>
+  </form>
+</div>
+
+<div class="card" id="courses">
+  <h2 style="margin-top:0">{{ _("Courses and student emails") }}</h2>
+  <div class="grid2">
+    <div>
+      <label>{{ _("Courses") }}</label>
+      {% if course_list %}
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin:4px 0 8px">
+        {% for c in course_list %}
+        <form method="post" action="/settings/courses/remove" class="coursechip" onsubmit="return confirm({{ _("Remove the course %(c)s? Its %(n)s student(s) will have no course.", c=c, n=course_counts[c]).unescape()|tojson|forceescape }})">
+          <input type="hidden" name="name" value="{{ c }}">{{ c }} <span class="muted small">{{ course_counts[c] }}</span>
+          <button type="submit" class="small secondary" title="{{ _("remove this course") }}">{{ _("Remove") }}</button></form>
+        {% endfor %}
+      </div>
+      {% else %}<p class="hint" style="margin:2px 0 8px">{{ _("No courses yet. Without courses everything works as one class.") }}</p>{% endif %}
+      <form method="post" action="/settings/courses/add" class="row" style="gap:6px">
+        <input type="text" name="name" placeholder="{{ _("e.g. Software Engineering") }}" style="flex:1">
+        <button type="submit" class="small">{{ _("Add course") }}</button>
+      </form>
+      <p class="hint">{{ _("Then pick each student's course in the list of students below.") }} {{ _("The statistics and the Progress page can show one course at a time.") }}</p>
+    </div>
+    <div>
+      <label>{{ _("Email domain for students") }}</label>
+      <form method="post" action="/settings/email" class="row" style="gap:6px">
+        <span>{{ _("student number @") }}</span><input type="text" name="email_domain" value="{{ email_domain }}" placeholder="{{ _("e.g. student.university.edu") }}" style="flex:1">
+        <button type="submit" class="small">{{ _("Save") }}</button>
+      </form>
+      <p class="hint">{{ _("A student with the box <b>number@domain</b> ticked (the default) gets e.g.
+        <code>12345678@%(domain)s</code>.", domain=email_domain or "student.university.edu") }} {{ _("Untick it to type that student's own email instead.") }}
+        {{ _("Leave the domain empty if your institution does not use student-number emails.") }}{% if not email_domain %} {{ _("<b>No domain set yet</b>, so only students with their own email have one.") }}{% endif %}</p>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="students">
+  <h2 style="margin-top:0">{{ _("Student names") }} <span class="muted small">{{ _("%(n)s stored", n=students|length) }}</span></h2>
+  <p class="hint">{{ _('One student per line: <code>12345678, Jane Doe</code> (comma, semicolon or tab; "name, number" also works).') }}
+    {{ _("An email on the line (<code>12345678, Jane Doe, jane@mail.com</code>) is stored as that student's own email.") }}
+    {{ _("The list is shared by all exam sets - a student number is unique - so paste the class list once and the name
+    appears next to the number on the phone, in the results, on the statistics page and on the reveal page.") }}</p>
+  <form method="post" action="/settings/students" enctype="multipart/form-data">
+    <div class="grid2">
+      <div>
+        <textarea name="text" style="min-height:180px" placeholder="{{ _("12345678, Jane Doe
+12345679, John Smith") }}"></textarea>
+      </div>
+      <div>
+        <label>{{ _("…or a CSV file exported from the student system") }}</label>
+        <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain">
+        {% if course_list %}
+        <label style="margin-top:12px">{{ _("Course of these students") }} <span class="muted small">{{ _("(optional)") }}</span></label>
+        <select name="course">
+          <option value="">{{ _("- keep their course (new students: none) -") }}</option>
+          {% for c in course_list %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+        {% endif %}
+        <div class="row" style="margin-top:12px">
+          <label class="inline"><input type="radio" name="mode" value="merge" checked> {{ _("add to / update the stored list") }}</label>
+          <label class="inline"><input type="radio" name="mode" value="replace"> {{ _("replace the whole list") }}</label>
+        </div>
+        <div style="margin-top:12px"><button type="submit">{{ _("Save students") }}</button></div>
+      </div>
+    </div>
+  </form>
+  {% if students %}
+  <details style="margin-top:12px" id="studentlist" open>
+    <summary class="small">{{ _("The stored list: course and email of each student") }}</summary>
+    <form method="post" action="/settings/students/update" id="studentsform" novalidate></form>
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <p class="hint" style="margin:0">{{ _("Pick a course, or untick <b>number@domain</b> and type the student's own email, then press <b>Save changes</b>.") }}</p>
+      <button type="submit" form="studentsform" class="small">{{ _("Save changes") }}</button>
+    </div>
+    <div class="table-wrap"><table style="margin-top:8px" class="studenttable">
+      <tr><th>{{ _("Student number") }}</th><th>{{ _("Name") }}</th><th>{{ _("Course") }}</th><th>{{ _("Email") }}</th><th></th></tr>
+      {% for no, name in students.items() %}{% set st = info[no] %}
+      <tr><td><code>{{ no }}</code><input type="hidden" form="studentsform" name="rows" value="{{ no }}"></td><td>{{ name }}</td>
+        <td><select form="studentsform" name="course_{{ no }}"{% if not course_list %} disabled title="{{ _("add courses above first") }}"{% endif %}>
+          <option value="">-</option>
+          {% for c in course_list %}<option value="{{ c }}" {% if student_course[no] == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select></td>
+        <td class="emailcell"><label class="inline small" title="{{ _("email = student number @ the domain above") }}"><input type="checkbox" form="studentsform" name="default_{{ no }}" class="emaildefault" {% if not st.email_custom %}checked{% endif %}> {{ _("number@domain") }}</label>
+          <input type="email" form="studentsform" name="email_{{ no }}" class="emailown" value="{{ st.email }}"
+            placeholder="{{ (no ~ '@' ~ email_domain) if email_domain else _("their own email") }}" {% if not st.email_custom %}hidden{% endif %}>
+          <span class="muted small emailshow" {% if st.email_custom %}hidden{% endif %}>{{ (no ~ '@' ~ email_domain) if email_domain else _("no domain set") }}</span></td>
+        <td><form method="post" action="/settings/students/delete"><input type="hidden" name="student_no" value="{{ no }}"><button class="small danger" type="submit">{{ _("Remove") }}</button></form></td></tr>
+      {% endfor %}
+    </table></div>
+    <div style="margin-top:8px"><button type="submit" form="studentsform">{{ _("Save changes") }}</button></div>
+    <form method="post" action="/settings/students/clear" style="margin-top:8px" onsubmit="return confirm({{ _("Remove all stored student names?")|tojson|forceescape }})"><button class="small danger" type="submit">{{ _("Clear the whole list") }}</button></form>
+  </details>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Grading and reveal page") }}</h2>
+  <form method="post" action="/settings/general">
+    <div class="grid2">
+      <div><label>{{ _("Pass mark (%) - used for the pass rate on the statistics page") }}</label><input type="number" name="pass_mark" value="{{ s.pass_mark }}" min="0" max="100" step="0.5"></div>
+      <div><label>{{ _("Grade bands (lower limit % : name, separated by |)") }}</label><input type="text" name="bands" value="{{ s.bands }}"></div>
+    </div>
+    <div style="margin-top:10px"><label>{{ _("What the reveal page shows to the student") }}</label>
+      <div class="row">
+        <label class="inline"><input type="checkbox" name="reveal_show_name" {% if s.reveal_show_name %}checked{% endif %}> {{ _("name") }}</label>
+        <label class="inline"><input type="checkbox" name="reveal_show_score" {% if s.reveal_show_score %}checked{% endif %}> {{ _("score (e.g. 17 / 20)") }}</label>
+        <label class="inline"><input type="checkbox" name="reveal_show_percent" {% if s.reveal_show_percent %}checked{% endif %}> {{ _("percentage") }}</label>
+      </div>
+    </div>
+    <div style="margin-top:10px;max-width:420px"><label>{{ _("Hide the result by itself after (seconds, 0 = only when tapped again)") }}</label>
+      <input type="number" name="reveal_hide_after" value="{{ s.reveal_hide_after }}" min="0" max="600" step="1"></div>
+    <h3>{{ _("Defaults for new exam sets") }}</h3>
+    <div class="grid2">
+      <div><label>{{ _("Lecturer") }}</label><input type="text" name="default_lecturer" value="{{ s.default_lecturer }}"></div>
+      <div class="row">
+        <div style="flex:1"><label>{{ _("Student number prefix") }}</label><input type="text" name="default_id_prefix" value="{{ s.default_id_prefix }}"></div>
+        <div style="flex:1"><label>{{ _("Digits filled by the student") }}</label><input type="number" name="default_id_digits" value="{{ s.default_id_digits }}" min="1" max="8"></div>
+      </div>
+    </div>
+    <label style="margin-top:10px">{{ _("Institution header (up to 3 lines)") }}</label>
+    <textarea name="default_institution">{{ s.default_institution }}</textarea>
+    <div style="margin-top:12px"><button type="submit">{{ _("Save settings") }}</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Reading the bubbles") }}</h2>
+  <p class="hint">{{ _("The reader measures how dark the inside of every bubble is, from 0% (paper) to 100% (solid ink).") }}
+    {{ _("A bubble at or above the first value counts as filled.") }} {{ _("One between the two values is counted as blank
+    but flagged as <b>weak or no mark</b>, in orange, so you can check it (the student page has a button to count it).") }}
+    {{ _("In the student number, such a column is left unreadable, so the sheet goes to review.") }} {{ _("Below the second value it is blank.") }}
+    {{ _("If empty bubbles keep getting flagged with your printer and pens, open a few flagged sheets on the student page,
+    note the darkness shown there, and raise the second value above it.") }} {{ _("Changes apply to sheets scanned from now on.") }}</p>
+  <form method="post" action="/settings/reading" class="row">
+    <div><label>{{ _("Filled bubble from (% dark)") }}</label><input type="number" name="mark_pct" value="{{ s.mark_pct }}" min="10" max="90" style="width:110px"></div>
+    <div><label>{{ _("Weak or no mark from (% dark)") }}</label><input type="number" name="weak_pct" value="{{ s.weak_pct }}" min="5" max="85" style="width:110px"></div>
+    <div style="margin-top:18px"><button type="submit" class="secondary">{{ _("Save thresholds") }}</button></div>
+    <span class="hint" style="margin-top:18px">{{ _("Defaults: 35 and 20.") }}</span>
+  </form>
+</div>
+
+<div class="card" id="colours">
+  <h2 style="margin-top:0">{{ _("Colours on the student's page") }}</h2>
+  <p class="hint">{{ _("Used for the tinted rows on the student's page, the full-size view and the PDF report.") }} {{ _("Visual only:
+    nothing in the marking changes.") }} {{ _("The circles the reader draws on the sheet at scan time (green, orange, red) stay as they are.") }}</p>
+  <form method="post" action="/settings/colours" class="colour-row">
+    <div><label>{{ _("Right") }}</label><input type="color" name="color_right" value="{{ s.color_right }}"></div>
+    <div><label>{{ _("Wrong") }}</label><input type="color" name="color_wrong" value="{{ s.color_wrong }}"></div>
+    <div><label>{{ _("Blank") }}</label><input type="color" name="color_blank" value="{{ s.color_blank }}"></div>
+    <div><label>{{ _("Several marks") }}</label><input type="color" name="color_multiple" value="{{ s.color_multiple }}"></div>
+    <div><button type="submit" class="secondary">{{ _("Save colours") }}</button></div>
+    <div><button type="submit" name="reset" value="1" class="secondary small">{{ _("Back to the defaults") }}</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Header image on the answer sheet") }}</h2>
+  <p class="hint">{{ _("Printed between the two top black squares (e.g. your institution's logo and name).") }} {{ _("With an image,
+    the institution text lines are not printed; choose <i>none</i> to print the text lines instead.") }}
+    {{ _("The uploaded image is kept in the data folder, so it survives updates of the program.") }}
+    {% set effective = s.logo if (s.logo != "default" or bundled_logo) else "none" %}
+    {% if effective == "custom" and not custom_logo %}{% set effective = "none" %}{% endif %}
+    {{ _("Currently: <b>%(what)s</b>.", what={"default": _("the bundled image"), "custom": _("your uploaded image"), "none": _("none (text lines)")}[effective]) }}</p>
+  <form method="post" action="/settings/logo" enctype="multipart/form-data" class="row">
+    {% if bundled_logo %}<label class="inline"><input type="radio" name="mode" value="default" {% if s.logo == "default" %}checked{% endif %}> {{ _("bundled image") }}</label>{% endif %}
+    <label class="inline"><input type="radio" name="mode" value="custom" {% if effective == "custom" %}checked{% endif %} {% if not custom_logo %}disabled{% endif %}> {{ _("uploaded image") }}</label>
+    <label class="inline"><input type="radio" name="mode" value="none" {% if effective == "none" %}checked{% endif %}> {{ _("none") }}</label>
+    <input type="file" name="file" accept="image/png,image/jpeg" style="max-width:240px" title="{{ _("upload a new header image (wide PNG with transparent background works best; it is scaled to 15 mm high)") }}">
+    <button type="submit" class="secondary">{{ _("Save header") }}</button>
+  </form>
+</div>
+
+<div class="card" id="backup">
+  <h2 style="margin-top:0">{{ _("Backup") }}</h2>
+  <p class="hint">{{ _("A backup is one .zip file with everything: exam sets, scanned sheets with their photos, students, courses and settings.") }}
+    {{ _("Keep one somewhere safe (a USB stick, cloud storage).") }} {{ _("To move to another computer, install MCQ-OMR there and restore the backup.") }}</p>
+  <p><a class="btn" href="/settings/backup">{{ _("Download a backup") }}</a> <span class="small muted">{{ _("This can take a moment with many photos.") }}</span></p>
+  <form method="post" action="/settings/restore" enctype="multipart/form-data" class="row" style="align-items:flex-end"
+        onsubmit="return confirm({{ _("Replace all current data with this backup? The current data is saved first in the backups folder of the data folder.")|tojson|forceescape }})">
+    <div><label>{{ _("Restore a backup") }}</label><input type="file" name="file" accept=".zip,application/zip" required style="max-width:280px"></div>
+    <label class="inline small"><input type="checkbox" name="confirm" value="yes" required> {{ _("replace all current data with this backup") }}</label>
+    <button type="submit" class="secondary">{{ _("Restore") }}</button>
+  </form>
+  <p class="hint">{{ _("Restoring replaces everything shown in MCQ-OMR.") }} {{ _("The data you had before is saved first as a backup in the <code>backups</code> folder inside the data folder, so a restore of the wrong file can be undone.") }}</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  // number@domain ticked: show the address it makes; unticked: a box for the student's own email
+  document.querySelectorAll("td.emailcell").forEach(td => {
+    const box = td.querySelector(".emaildefault"), own = td.querySelector(".emailown");
+    const show = td.querySelector(".emailshow");
+    box.addEventListener("change", () => {
+      own.hidden = box.checked;
+      if (show) show.hidden = !box.checked;
+      if (!box.checked) own.focus();
+    });
+  });
+  // unsaved changes in the list of students: warn before leaving the page
+  let dirty = false;
+  document.querySelectorAll('[form="studentsform"]').forEach(el => el.addEventListener("change", () => { dirty = true; }));
+  const f = document.getElementById("studentsform");
+  if (f) f.addEventListener("submit", () => { dirty = false; });
+  window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,5 @@
+# never bake exam data (database, scans, students, logo) into an image: it is mounted as a volume
+data/
+tests/out/
+__pycache__/
+*.pyc

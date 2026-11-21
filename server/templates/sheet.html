@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}{{ d.student_no }} · {{ exam.meta.title }}{% endblock %}
+{% block content %}
+<style>:root { --c-right:{{ cols.right }}; --c-wrong:{{ cols.wrong }}; --c-blank:{{ cols.blank }}; --c-multiple:{{ cols.multiple }}; }</style>
+<div class="row" style="justify-content:space-between">
+  <h1>{{ d.student_no }}{% if d.name %} <span class="muted">{{ d.name }}</span>{% endif %}
+    <span class="muted small">· {{ exam.meta.title }} · {{ _("version %(v)s", v="%02d"|format(d.version)) }} · {{ _("scan #%(n)s", n=seq or d.scan_id) }}</span></h1>
+  <div class="row">
+    {% if d.has_overlay %}<a class="btn small" href="/scans/{{ d.scan_id }}/report.pdf" target="_blank" title="{{ _("original photo, sheet as read, question by question, side by side, and the table below: one PDF") }}">{{ _("PDF report") }}</a>{% endif %}
+    <a class="btn secondary small" href="/scans/{{ d.scan_id }}">{{ _("Edit / correct this scan") }}</a>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats">{{ _("Statistics") }}</a>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}#results">{{ _("Back to results") }}</a>
+  </div>
+</div>
+{% if superseded %}<div class="msg">{{ _("This student number was scanned again later; the newer scan is the one that counts. This page shows this older scan.") }}</div>{% endif %}
+{% if d.flags %}<div class="msg">{{ d.flags|map("flag")|join(" · ") }}</div>{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="tile-label">{{ _("Score") }}</div><div class="tile-value">{{ d.score }} / {{ d.max_score }}</div>
+    <div class="tile-sub">{{ d.percent|num }}%{% if d.band %} · {{ d.band }}{% endif %}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Right") }}</div><div class="tile-value ok-text">{{ d.counts.right }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Wrong") }}</div><div class="tile-value bad-text">{{ d.counts.wrong }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Blank") }}</div><div class="tile-value">{{ d.counts.blank }}</div>
+    <div class="tile-sub">{{ _("%(n)s with several marks", n=d.counts.multiple) }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Status") }}</div><div class="tile-value"><span class="tag {{ d.status }}">{{ {"ok": _("ok"), "review": _("review"), "failed": _("failed")}.get(d.status, d.status) }}</span></div>
+    <div class="tile-sub">{{ _("scanned %(date)s", date=d.created) }}</div></div>
+</div>
+
+{% if ind and ind.available %}
+<div class="card indstats">
+  <h2 style="margin-top:0">{{ _("Individual statistics") }}</h2>
+  {% if not ind.counted %}<p class="note warn">{{ _("This scan is not the one that counts for this student (or is not scored yet): it is compared with the class, but is not part of the class figures.") }}</p>{% endif %}
+  <div class="tiles">
+    <div class="tile"><div class="tile-label">{{ _("Place in the class") }}</div>
+      <div class="tile-value">{% if ind.n_ranked > 1 %}{{ _('%(rank)s <span class="small muted">of %(n)s</span>', rank=ind.rank, n=ind.n_ranked) }}{% else %}–{% endif %}</div>
+      <div class="tile-sub">{% if ind.n_ranked > 1 %}{% if ind.n_equal %}{{ ngettext("shared with %(n)s other", "shared with %(n)s others", ind.n_equal) }} · {% endif %}{{ _("scored higher than %(pct)s%% of the others", pct=ind.beats_pct|num) }}{% else %}{{ _("first sheet scored so far") }}{% endif %}</div></div>
+    {% if ind.class_ok %}
+    <div class="tile"><div class="tile-label">{{ _("Compared with the class mean") }}</div>
+      <div class="tile-value {{ 'ok-text' if ind.diff_mean > 0 else 'bad-text' if ind.diff_mean < 0 }}">{{ '+' if ind.diff_mean > 0 }}{{ ind.diff_mean|num }} <span class="small muted">{{ _("points") }}</span></div>
+      <div class="tile-sub">{{ _("class mean %(mean)s%% · median %(median)s%%", mean=ind.class_mean|num, median=ind.class_median|num) }}</div></div>
+    <div class="tile"><div class="tile-label">{{ _("Class range") }}</div>
+      <div class="tile-value">{{ ind.class_min|num }}–{{ ind.class_max|num }}%</div>
+      <div class="tile-sub">{% if ind.quartile %}{{ ind.quartile }}{% endif %}{% if ind.z is not none %}{{ ' · ' if ind.quartile }}{{ _("z-score %(z)s", z=ind.z) }}{% endif %}</div></div>
+    {% else %}
+    <div class="tile"><div class="tile-label">{{ _("Class mean, median, range") }}</div>
+      <div class="tile-value">–</div>
+      <div class="tile-sub">{{ _("shown from %(min)s scored sheets on (%(n)s so far), so they never give away another student's score", min=5, n=ind.n_ranked) }}</div></div>
+    {% endif %}
+    {% for h in ind.halves %}
+    <div class="tile"><div class="tile-label">{{ _("Right, %(part)s", part=h.label) }}</div>
+      <div class="tile-value">{{ h.right }} <span class="small muted">/ {{ h.n }}</span></div>
+      <div class="tile-sub">{{ h.percent|num }}%</div></div>
+    {% endfor %}
+  </div>
+  {% if ind.halves_note %}<p class="note">{{ ind.halves_note }}</p>{% endif %}
+  {% if ind.difficulty_ok %}
+  <div class="grid2">
+    <div>
+      <h3>{{ _("By how hard each question was for the class") }}</h3>
+      <table>
+        <tr><th>{{ _("Questions") }}</th><th>{{ _("Right") }}</th><th style="width:40%"></th></tr>
+        {% for g in ind.difficulty %}
+        <tr><td>{{ g.label }}</td><td>{% if g.n %}{{ g.right }} / {{ g.n }} ({{ g.percent|num }}%){% else %}<span class="muted">{{ _("none") }}</span>{% endif %}</td>
+          <td>{% if g.n %}<span class="hbar-track"><span class="hbar-fill" style="width:{{ g.percent }}%"></span></span>{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <h3>{{ _("Worth revising") }} <span class="muted small">{{ _("wrong, but most of the class got it right") }}</span></h3>
+      {% if ind.revise %}<ul class="small">{% for q in ind.revise %}<li><a href="/sets/{{ exam.id }}/questions/{{ q.q }}">{{ _("Q%(n)s", n=q.q) }}</a> {{ _("(%(pct)s%% of the class right)", pct=q.class_pct|num) }} {{ q.text }}</li>{% endfor %}</ul>
+      {% else %}<p class="muted small">{{ _("None.") }}</p>{% endif %}
+      <h3>{{ _("Strong points") }} <span class="muted small">{{ _("right, though most of the class got it wrong") }}</span></h3>
+      {% if ind.strong %}<ul class="small">{% for q in ind.strong %}<li><a href="/sets/{{ exam.id }}/questions/{{ q.q }}">{{ _("Q%(n)s", n=q.q) }}</a> {{ _("(%(pct)s%% of the class right)", pct=q.class_pct|num) }} {{ q.text }}</li>{% endfor %}</ul>
+      {% else %}<p class="muted small">{{ _("None.") }}</p>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="hint">{{ _("The comparison by question difficulty appears once %(min)s or more sheets of this exam are scored (%(n)s so far).", min=5, n=ind.n_class) }}</p>
+  {% endif %}
+  {% if ind.history|length > 1 %}
+  <h3>{{ _("All exams of this student") }}</h3>
+  {% set cur = ind.history|selectattr("set_id", "equalto", exam.id)|first %}
+  {% set missed = ind.history|selectattr("absent")|list %}
+  {% if cur and cur.change is not none %}{% set chg %}<b class="{{ 'up' if cur.change > 0 else ('down' if cur.change < 0 else '') }}">{{ _("%(n)s points", n=('+' if cur.change > 0 else ('−' if cur.change < 0 else '')) ~ (cur.change|abs)|num) }}</b>{% endset %}<p>{% if cur.pos_change is none %}{{ _("Since %(exam)s: %(change)s.", exam=cur.prev_title, change=chg) }}{% elif cur.pos_change > 0 %}{{ _("Since %(exam)s: %(change)s, place in the class up by %(p)s percentile points.", exam=cur.prev_title, change=chg, p=(cur.pos_change|abs)|num) }}{% elif cur.pos_change < 0 %}{{ _("Since %(exam)s: %(change)s, place in the class down by %(p)s percentile points.", exam=cur.prev_title, change=chg, p=(cur.pos_change|abs)|num) }}{% else %}{{ _("Since %(exam)s: %(change)s, place in the class unchanged.", exam=cur.prev_title, change=chg) }}{% endif %}{% if missed %} {{ _("Did not sit %(exams)s.", exams=missed|map(attribute="title")|join(", ")) }}{% endif %}</p>
+  {% elif missed %}<p>{{ _("Did not sit %(exams)s.", exams=missed|map(attribute="title")|join(", ")) }}</p>{% endif %}
+  <table>
+    <tr><th>{{ _("Exam") }}</th><th>{{ _("Date") }}</th><th>{{ _("Score") }}</th><th>%</th><th title="{{ _("since the previous MCQ of the same module") }}">{{ _("Change") }}</th><th>{{ _("Class mean") }}</th><th>{{ _("Place") }}</th></tr>
+    {% for h in ind.history %}
+    {% if h.absent %}
+    <tr><td>{{ h.title }}</td><td class="small">{{ h.created }}</td><td colspan="5" class="absent">{{ _("did not sit (no sheet with this student number)") }}</td></tr>
+    {% else %}
+    <tr{% if h.set_id == exam.id %} class="current"{% endif %}><td><a href="/scans/{{ h.scan_id }}/sheet">{{ h.title }}</a>{% if h.set_id == exam.id %} <span class="muted small">{{ _("(this exam)") }}</span>{% endif %}</td>
+      <td class="small">{{ h.created }}</td><td>{{ h.score }} / {{ h.max_score }}</td><td>{{ h.percent|num }}%</td>
+      <td class="{{ 'up' if h.change and h.change > 0 else ('down' if h.change and h.change < 0 else '') }}">{% if h.change is none %}–{% else %}{{ '+' if h.change > 0 else ('−' if h.change < 0 else '') }}{{ (h.change|abs)|num }}{% endif %}</td>
+      <td>{% if h.class_mean is not none %}{{ h.class_mean|num }}%{% else %}<span class="muted small">{{ _("under %(min)s sheets", min=5) }}</span>{% endif %}</td><td>{{ _("%(rank)s of %(n)s", rank=h.rank, n=h.n) }}</td></tr>
+    {% endif %}
+    {% endfor %}
+  </table>
+  <p class="hint">{{ _('Change = percentage points since the previous MCQ of the same module this student sat. "Did not sit" lists the earlier MCQs
+    of this module with no sheet under this student number.') }}</p>
+  {% endif %}
+  <p class="hint">{{ _("Only figures about the whole class are shown, no other student's result, so this page and the PDF report can be given to the student. Class figures use the latest scan of every student, as on the statistics page.") }}</p>
+</div>
+{% endif %}
+
+<div class="sheetgrid">
+  <div class="card sheetcard">
+    <div class="sheetwrap" id="sheetwrap">
+      <img src="/files/{{ d.image }}" alt="{{ _("answer sheet") }}" width="{{ d.width }}" height="{{ d.height }}">
+      {% if d.has_overlay %}
+      <svg viewBox="0 0 {{ d.width }} {{ d.height }}" preserveAspectRatio="none" aria-hidden="true">
+        {% for r in d.rows %}
+        <g class="srow {{ r.outcome }}" id="srow-{{ r.pos }}" data-pos="{{ r.pos }}">
+          <rect x="{{ r.box[0] }}" y="{{ r.box[1] }}" width="{{ r.box[2] }}" height="{{ r.box[3] }}" rx="10"></rect>
+          {% if r.outcome == "wrong" and r.marked_bubble %}<circle class="marked" cx="{{ r.marked_bubble[0] }}" cy="{{ r.marked_bubble[1] }}" r="{{ d.r_px + 7 }}"></circle>{% endif %}
+          {% if r.outcome != "right" %}<circle class="key" cx="{{ r.key_bubble[0] }}" cy="{{ r.key_bubble[1] }}" r="{{ d.r_px + 7 }}"></circle>{% endif %}
+        </g>
+        {% endfor %}
+      </svg>
+      {% endif %}
+    </div>
+    <div class="legend">
+      <span><i class="sw right"></i> {{ _("right") }}</span>
+      <span><i class="sw wrong"></i> {{ _("wrong (green ring = the correct bubble)") }}</span>
+      <span><i class="sw blank"></i> {{ _("blank") }}</span>
+      <span><i class="sw multiple"></i> {{ _("several marks") }}</span>
+    </div>
+    <p class="hint">{{ _("The circles come from the reader: green = the mark it read, orange = weak or no mark, red = several marks.") }}
+      {% if d.has_overlay %}{{ _('<a href="%(url)s"><b>Full size</b></a>: the photo, the sheet as read and this view side by side.', url="/scans/%s/sheet/full"|format(d.scan_id)) }}{% endif %}
+      {{ _('Colours can be changed in <a href="/settings#colours">Settings</a>.') }}</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ _("Question by question") }}</h2>
+    {% if d.n_weak %}
+    <p class="note warn">{{ ngettext('%(n)s position read as "weak or no mark": the reader found a faint mark (%(weak)s%% dark or more, but under the %(mark)s%% of a filled bubble). Sheets read now count it as blank: if the crop shows a real mark, press <b>count as</b> that letter. (Sheets read before this change counted it: if the crop shows nothing there, press <b>count as blank</b>.) Filled bubbles on this sheet measure about %(dark)s%% dark.', '%(n)s positions read as "weak or no mark": the reader found a faint mark (%(weak)s%% dark or more, but under the %(mark)s%% of a filled bubble). Sheets read now count it as blank: if the crop shows a real mark, press <b>count as</b> that letter. (Sheets read before this change counted it: if the crop shows nothing there, press <b>count as blank</b>.) Filled bubbles on this sheet measure about %(dark)s%% dark.', d.n_weak, weak=d.weak_pct, mark=d.mark_pct, dark=d.mean_dark_marked) }}</p>
+    {% endif %}
+    {% set cs = 0.68 %}
+    <div class="table-wrap"><table class="sheettable">
+      <tr><th>{{ _("On sheet") }}</th><th>{{ _("Bubbles as photographed") }}</th><th>{{ _("Marked") }}</th><th>{{ _("Question") }}</th></tr>
+      {% for r in d.rows %}
+      <tr id="pos-{{ r.pos }}" class="prow {{ r.outcome }}" data-pos="{{ r.pos }}">
+        <td><b>{{ r.pos }}</b><div><span class="tag {{ r.outcome }}">{{ r.outcome_text }}</span></div></td>
+        <td><div class="crop" style="background-image:url('/files/{{ d.image }}');background-size:{{ (d.width * cs)|round|int }}px auto;background-position:-{{ (r.box[0] * cs)|round|int }}px -{{ (r.box[1] * cs)|round|int }}px;width:{{ (r.box[2] * cs)|round|int }}px;height:{{ (r.box[3] * cs)|round|int }}px" title="{{ _("position %(n)s as photographed", n=r.pos) }}">{% if r.crop_marked or r.crop_key %}<svg class="cropring" viewBox="0 0 {{ r.box[2] }} {{ r.box[3] }}" aria-hidden="true">{% if r.crop_marked %}<circle class="marked" cx="{{ r.crop_marked[0] }}" cy="{{ r.crop_marked[1] }}" r="{{ d.crop_ring_r }}" stroke-width="{{ d.crop_ring_w }}"></circle>{% endif %}{% if r.crop_key %}<circle class="key" cx="{{ r.crop_key[0] }}" cy="{{ r.crop_key[1] }}" r="{{ d.crop_ring_r }}" stroke-width="{{ d.crop_ring_w }}"></circle>{% endif %}</svg>{% endif %}</div></td>
+        <td>
+          {% if r.outcome == "multiple" %}<b>{{ _("several marks") }}</b> <span class="muted small">{{ _("counts as wrong") }}</span>
+          {% elif r.outcome == "blank" %}<span class="muted">{{ _("blank") }}</span>
+          {% else %}<b>{{ r.marked }}</b> <span class="small">{{ r.marked_text }}</span>{% endif %}
+          {% if r.outcome != "right" %}<div class="small muted">{{ _("key") }} <b>{{ r.key }}</b> {{ r.key_text }}</div>{% endif %}
+          {% if r.weak %}<div class="small warn-text">{{ _("weak or no mark") }} · {% if r.next_pct is not none %}{{ _("%(pct)s%% dark, next bubble %(next)s%%", pct=r.max_pct, next=r.next_pct) }}{% else %}{{ _("%(pct)s%% dark", pct=r.max_pct) }}{% endif %}{% if r.outcome == "blank" %} · {{ _("counted as blank") }}{% endif %}</div>
+            {% if r.outcome != "blank" %}<form method="post" action="/scans/{{ d.scan_id }}/blank/{{ r.pos }}" onsubmit="return confirm({{ _("Count position %(n)s as blank and rescore?", n=r.pos)|tojson|forceescape }})"><button class="small secondary" type="submit">{{ _("count as blank") }}</button></form>
+            {% elif r.suggest %}<form method="post" action="/scans/{{ d.scan_id }}/answer/{{ r.pos }}" onsubmit="return confirm({{ _("Count position %(n)s as %(letter)s and rescore?", n=r.pos, letter=r.suggest)|tojson|forceescape }})"><input type="hidden" name="letter" value="{{ r.suggest }}"><button class="small secondary" type="submit">{{ _("count as %(letter)s", letter=r.suggest) }}</button></form>{% endif %}
+          {% endif %}
+        </td>
+        <td class="small"><a href="/sets/{{ exam.id }}/questions/{{ r.q }}" title="{{ _("how the class did on this question") }}">{{ _("Q%(n)s", n=r.q) }}</a> {{ r.text }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    <p class="hint">{{ _('In the close-ups, a ring in the "wrong" colour (red by default) is the bubble a wrong answer was marked in, and a ring in the "right" colour (green by default) is the correct bubble.') }}
+      {{ _('"On sheet" is the position on this student\'s paper; "Question" is the original number, as you entered it. The crop is that row of bubbles as photographed. Move the mouse over a row to find it on the sheet. To change an answer or the student number, use "Edit / correct this scan".') }}</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  // hovering a table row lights up the same row on the sheet, and the other way round
+  const link = (from, to) => document.querySelectorAll(from).forEach(el => {
+    const other = () => document.getElementById(to + el.dataset.pos);
+    el.addEventListener("mouseenter", () => other() && other().classList.add("hot"));
+    el.addEventListener("mouseleave", () => other() && other().classList.remove("hot"));
+  });
+  link(".prow", "srow-");
+  link(".srow", "pos-");
+  document.querySelectorAll(".srow").forEach(el => el.addEventListener("click", () => {
+    const row = document.getElementById("pos-" + el.dataset.pos);
+    if (row) { row.scrollIntoView({ block: "center", behavior: "smooth" }); row.classList.add("hot"); setTimeout(() => row.classList.remove("hot"), 1500); }
+  }));
+})();
+</script>
+{% endblock %}

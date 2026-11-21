@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Statistics") }} · {{ exam.meta.title }}{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{{ _("Statistics") }} <span class="muted small">{{ exam.meta.title }} · {{ _("set <code>%(id)s</code>", id=exam.id) }}</span></h1>
+  <div class="row">
+    {% if sets and sets|length > 1 %}
+    <label class="inline small">{{ _("Exam set") }}
+      <select id="setpick" title="{{ _("show the statistics of another exam set") }}" onchange="location.href='/sets/' + this.value + '/stats'">
+        {% for s in sets %}<option value="{{ s.id }}" {% if s.id == exam.id %}selected{% endif %}>{{ s.title }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    {% if courses or course %}
+    <label class="inline small">{{ _("Course") }}
+      <select id="course" title="{{ _("show the statistics of one course only") }}">
+        <option value="">{{ _("All students") }}</option>
+        {% for c in courses %}<option value="{{ c.value }}" {% if c.value == course %}selected{% endif %}>{{ c.label }} ({{ c.n }})</option>{% endfor %}
+        {% if course and course not in courses|map(attribute="value")|list %}<option value="{{ course }}" selected>{{ course }} (0)</option>{% endif %}
+      </select></label>
+    {% endif %}
+    <label class="inline small"><input type="checkbox" id="auto" checked> {{ _("refresh every 10 s") }}</label>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/class-stats" title="{{ _("the same statistics without names, numbers or marks, to show the class") }}">{{ _("Statistics for students") }}</a>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/reveal">{{ _("Reveal page") }}</a>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}#results">{{ _("Back to exam set") }}</a>
+  </div>
+</div>
+<div id="stats" class="viz-root"><p class="muted">{{ _("Loading…") }}</p></div>
+{% endblock %}
+{% block scripts %}
+<script>window.SET_ID = {{ exam.id|tojson }}; window.COURSE = {{ course|tojson }};</script>
+<script src="/static/stats.js?v=5"></script>
+{% endblock %}

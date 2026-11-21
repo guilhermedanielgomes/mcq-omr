@@ -1,0 +1,49 @@
+# --- never publish exam data: database, scanned sheets, uploaded logo, student names ---
+server/data/
+*.sqlite3
+*.db
+
+# institution logos stay local (upload them in Settings instead)
+server/omr/assets/header.png
+
+# test output
+server/tests/out/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Android / Gradle build output and local machine settings
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# documentation website build output (GitHub builds it)
+docs/_site/
+docs/.jekyll-cache/
+docs/.sass-cache/
+
+# editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# desktop app builds (PyInstaller output and installers)
+build/
+dist/
+*.dmg
+*.exe
+*.deb
+packaging/**/build/

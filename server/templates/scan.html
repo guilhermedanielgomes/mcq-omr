@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Scan sheets") }} · MCQ-OMR{% endblock %}
+{% block content %}
+<h1>{{ _("Scan answer sheets") }}</h1>
+<p class="hint">{{ _("Three ways to get the sheets in without the Android app.") }} {{ _("Whichever you use, every photo is read the same way and the result card appears at the bottom, newest first.") }}</p>
+
+<div class="scangrid">
+  <div class="card">
+    <h2 style="margin-top:0">{{ _("1. Phone camera") }}</h2>
+    <p class="muted small">{{ _("Open this page on the phone (the address <code>run.py</code> printed, then <code>/scan</code>).") }} {{ _("Each tap opens the camera; the whole sheet in view, flat, no shadow across the bubbles.") }}</p>
+    <input type="file" id="camfile" accept="image/*" capture="environment" style="display:none">
+    <button id="shoot" style="font-size:17px;padding:12px 18px;width:100%">{{ _("Photograph the next sheet") }}</button>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ _("2. Webcam on this computer") }}</h2>
+    <p class="muted small">{{ _("Point a webcam or a document camera down at the sheet so it fills the picture.") }} {{ _("Works when this page is opened on the computer itself (<code>http://localhost:8000/scan</code>); browsers only give a page the camera over localhost or https.") }}</p>
+    <div id="webcam-off">
+      <button id="camstart" class="secondary">{{ _("Start the webcam") }}</button>
+      <span id="camerror" class="problems"></span>
+    </div>
+    <div id="webcam-on" style="display:none">
+      <div class="camwrap"><video id="video" autoplay playsinline muted></video><div class="camguide"></div></div>
+      <div class="row" style="margin-top:8px">
+        <select id="camlist" title="{{ _("which camera") }}" style="max-width:260px"></select>
+        <span id="camres" class="small muted"></span>
+      </div>
+      <button id="snap" style="font-size:17px;padding:12px 18px;width:100%;margin-top:8px">{{ _("Scan this sheet (space bar)") }}</button>
+      <p class="hint">{{ _("Fill the picture with the sheet.") }} {{ _("At least 1600 pixels across is needed for the QR code to read reliably; the number above tells you what this camera gives.") }}</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ _("3. Photos from this computer") }}</h2>
+    <p class="muted small">{{ _("Photos copied from a phone or a camera, as many as you like, or one zip file with all of them.") }} {{ _("They are read one after another, in file-name order.") }}</p>
+    <label>{{ _("Photos (select several at once)") }}</label>
+    <input type="file" id="files" accept="image/*" multiple>
+    <label style="margin-top:10px">{{ _("…or a zip of photos") }}</label>
+    <input type="file" id="zipfile" accept=".zip,application/zip">
+    <div id="progress" class="hint" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div id="busy" class="hint" style="display:none">{{ _("Reading…") }}</div>
+<div class="row" style="justify-content:space-between;margin-top:8px"><h2 style="margin:0">{{ _("Results") }} <span id="count" class="muted small"></span></h2></div>
+<div id="log"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const log = document.getElementById("log"), busy = document.getElementById("busy"), count = document.getElementById("count");
+  let n = 0;
+
+  function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  const STATUS = { ok: t("ok"), review: t("review"), failed: t("failed") };   // shown; the class keeps the key
+
+  function card(j, label) {
+    n++; count.textContent = `(${n})`;
+    const d = document.createElement("div");
+    d.className = "card";
+    const score = j.score != null ? `<b style="font-size:22px">${j.score} / ${j.max_score}</b>` : "<b>" + t("not scored") + "</b>";
+    d.innerHTML = `<div class="row" style="justify-content:space-between"><div><span class="tag ${esc(j.status)}">${esc(STATUS[j.status] || j.status)}</span>
+      <b style="font-size:20px;margin-left:8px">${esc(j.student_no || "?")}</b> ${j.name ? `<span>${esc(j.name)}</span>` : ""} <span class="muted">${t("version {v}", { v: esc(j.version ?? "?") })}</span>
+      ${label ? `<span class="muted small"> · ${esc(label)}</span>` : ""}</div>${score}</div>
+      <div class="small">${(j.flags || []).map(f => esc((window.tflag || String)(f))).join(" · ")}</div>
+      ${j.scan_id ? (j.score != null ? `<a class="small" href="/scans/${j.scan_id}/sheet">${t("student page")}</a> · ` : "") + `<a class="small" href="/scans/${j.scan_id}">${t("review")}</a>` : ""}`;
+    log.prepend(d);
+  }
+
+  async function send(blob, filename) {
+    const fd = new FormData(); fd.append("file", blob, filename);
+    busy.style.display = "block";
+    let j;
+    try {
+      const r = await fetch("/api/scan", { method: "POST", body: fd });
+      j = await r.json();
+    } catch (e) { j = { status: "failed", flags: [t("upload failed: {error}", { error: e })] }; }
+    busy.style.display = "none";
+    card(j, filename);
+    return j;
+  }
+
+  // ---- 1. phone camera -----------------------------------------------------------
+  const camfile = document.getElementById("camfile");
+  document.getElementById("shoot").onclick = () => camfile.click();
+  camfile.onchange = async () => { if (camfile.files.length) await send(camfile.files[0], camfile.files[0].name); camfile.value = ""; };
+
+  // ---- 3. photos from this computer, one by one, or a zip ------------------------
+  const files = document.getElementById("files"), progress = document.getElementById("progress"), zipfile = document.getElementById("zipfile");
+  files.onchange = async () => {
+    const list = Array.from(files.files).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (let i = 0; i < list.length; i++) {
+      progress.textContent = t("Reading {i} of {n}: {name}", { i: i + 1, n: list.length, name: list[i].name });
+      await send(list[i], list[i].name);
+    }
+    progress.textContent = !list.length ? "" : list.length === 1 ? t("Done: {n} photo read.", { n: list.length }) : t("Done: {n} photos read.", { n: list.length });
+    files.value = "";
+  };
+  zipfile.onchange = async () => {
+    if (!zipfile.files.length) return;
+    const f = zipfile.files[0];
+    progress.textContent = t("Reading the photos in {name}… (about a second per sheet, the page updates when all are done)", { name: f.name });
+    busy.style.display = "block";
+    const fd = new FormData(); fd.append("file", f, f.name);
+    try {
+      const r = await fetch("/api/scan_zip", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!j.ok) { progress.textContent = t("Not read: {error}", { error: j.error || t("unknown error") }); }
+      else {
+        j.results.forEach(x => card(x, x.filename));
+        const v = { n: j.n, name: f.name, skipped: j.skipped };
+        if (j.skipped) progress.textContent = j.n === 1 ? t("Done: {n} photo read from {name} ({skipped} skipped).", v) : t("Done: {n} photos read from {name} ({skipped} skipped).", v);
+        else progress.textContent = j.n === 1 ? t("Done: {n} photo read from {name}.", v) : t("Done: {n} photos read from {name}.", v);
+      }
+    } catch (e) { progress.textContent = t("Upload failed: {error}", { error: e }); }
+    busy.style.display = "none";
+    zipfile.value = "";
+  };
+
+  // ---- 2. webcam ------------------------------------------------------------------
+  const video = document.getElementById("video"), camlist = document.getElementById("camlist"), camres = document.getElementById("camres");
+  const camerror = document.getElementById("camerror");
+  let stream = null;
+
+  async function startCam(deviceId) {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    const video_c = { width: { ideal: 4096 }, height: { ideal: 2160 } };
+    if (deviceId) video_c.deviceId = { exact: deviceId }; else video_c.facingMode = "environment";
+    stream = await navigator.mediaDevices.getUserMedia({ video: video_c, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    const s = stream.getVideoTracks()[0].getSettings();
+    camres.textContent = s.width < 1600 ? t("{w} x {h} pixels, low for the QR code: try a higher setting or the phone", { w: s.width, h: s.height }) : t("{w} x {h} pixels", { w: s.width, h: s.height });
+    // the list of cameras is only readable after permission was given once
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+    camlist.innerHTML = "";
+    devs.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || t("camera {n}", { n: i + 1 }); if (d.deviceId === s.deviceId) o.selected = true; camlist.append(o); });
+  }
+  document.getElementById("camstart").onclick = async () => {
+    camerror.textContent = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camerror.textContent = t("No camera access here: open this page on the computer itself as http://localhost:8000/scan (or use option 1 or 3)."); return;
+    }
+    try {
+      await startCam(null);
+      document.getElementById("webcam-off").style.display = "none";
+      document.getElementById("webcam-on").style.display = "block";
+    } catch (e) { camerror.textContent = t("Could not start the camera: {error}", { error: e.message || e }); }
+  };
+  camlist.onchange = () => startCam(camlist.value).catch(e => { camerror.textContent = String(e); });
+
+  async function snap() {
+    if (!stream) return;
+    const c = document.createElement("canvas");
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext("2d").drawImage(video, 0, 0);
+    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.92));
+    const snapBtn = document.getElementById("snap");
+    snapBtn.disabled = true;
+    await send(blob, `webcam_${Date.now()}.jpg`);
+    snapBtn.disabled = false;
+  }
+  document.getElementById("snap").onclick = snap;
+  document.addEventListener("keydown", e => { if (e.code === "Space" && stream && !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(document.activeElement.tagName)) { e.preventDefault(); snap(); } });
+})();
+</script>
+{% endblock %}

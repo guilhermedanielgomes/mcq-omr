@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% macro show_text(parts, cls="qtext") %}{% for part in parts %}{% if part.code %}<pre class="sample">{{ part.text }}</pre>{% else %}<p class="{{ cls }}">{{ part.text }}</p>{% endif %}{% endfor %}{% endmacro %}
+{% block title %}{{ _("Statistics for students") }} · {{ exam.meta.title }}{% endblock %}
+{% block content %}
+<div class="row noprint" style="justify-content:space-between">
+  <h1>{{ _("Statistics for students") }} <span class="muted small">{{ exam.meta.title }}{% if course_label %} · {{ course_label }}{% endif %}</span></h1>
+  <div class="row">
+    {% if sets|length > 1 %}
+    <label class="inline small">{{ _("Exam set") }}
+      <select onchange="location.href='/sets/' + this.value + '/class-stats'">
+        {% for s in sets %}<option value="{{ s.id }}" {% if s.id == exam.id %}selected{% endif %}>{{ s.title }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    {% if courses or course %}
+    <label class="inline small">{{ _("Course") }}
+      <select onchange="location.href='?course=' + encodeURIComponent(this.value)">
+        <option value="">{{ _("All students") }}</option>
+        {% for c in courses %}<option value="{{ c.value }}" {% if c.value == course %}selected{% endif %}>{{ c.label }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    {% if d.enough %}<button type="button" class="small secondary" id="answers-toggle">{{ _("Show the correct answers") }}</button>{% endif %}
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Back to statistics") }}</a>
+  </div>
+</div>
+<p class="hint noprint">{{ _("This page is meant to be shown to the class: it has no names, student numbers or individual marks, no ranking and no lowest or highest score. The correct answers stay hidden until you press the button above.") }}</p>
+
+{% if not d.enough %}
+<div class="card"><p>{% if course_label %}{{ _("This page appears once at least %(min)s sheets are scored for this course (%(n)s so far). With fewer, individual marks could be worked out from the figures.", min=d.min_needed, n=d.n_scored) }}{% else %}{{ _("This page appears once at least %(min)s sheets are scored (%(n)s so far). With fewer, individual marks could be worked out from the figures.", min=d.min_needed, n=d.n_scored) }}{% endif %}</p></div>
+{% else %}
+<div class="tiles">
+  <div class="tile"><div class="tile-label">{{ _("Sheets") }}</div><div class="tile-value">{{ d.n_scored }}</div><div class="tile-sub">{{ _("%(n)s questions", n=d.n_questions) }}</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Class average") }}</div><div class="tile-value">{{ d.mean|num }}%</div></div>
+  <div class="tile"><div class="tile-label">{{ _("Median") }}</div><div class="tile-value">{{ d.median|num }}%</div><div class="tile-sub">{{ _("half the class scored at least this") }}</div></div>
+  {% if d.pass_rate is not none %}<div class="tile"><div class="tile-label">{{ _("Passed") }}</div><div class="tile-value">{{ d.pass_rate|num }}%</div><div class="tile-sub">{{ _("pass mark %(pct)s%%", pct=d.pass_mark|num) }}</div></div>{% endif %}
+</div>
+
+{% if d.histogram %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("How the scores spread") }}</h2>
+  <div class="classhist">
+    {% set top = (d.histogram|map(attribute="count")|max) or 1 %}
+    {% for h in d.histogram %}
+    <div class="classhist-col"><div class="classhist-count">{{ h.count or "" }}</div>
+      <div class="classhist-bar" style="height:{{ (100 * h.count / top)|round(1) }}%"></div>
+      <div class="classhist-label">{{ h.label }}%</div></div>
+    {% endfor %}
+  </div>
+  <p class="hint">{{ _("Number of students in each score range.") }}</p>
+</div>
+{% endif %}
+
+{% if d.bands %}
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Grade bands") }}</h2>
+  <div class="hbars">
+    {% for b in d.bands %}
+    <div class="hbar" style="grid-template-columns: 130px 1fr 60px"><span class="hbar-label">{{ b.name }} <span class="small">({{ b.from|num }}%+)</span></span>
+      <span class="hbar-track"><span class="hbar-fill" style="width:{{ b.percent }}%"></span></span><span class="hbar-value">{{ b.percent|num }}%</span></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Questions the class found hardest") }}</h2>
+  <ol class="plain-ol">{% for r in d.hardest %}<li>{{ _('<a href="#cq-%(q)s">Question %(q)s</a>: %(pct)s%% correct', q=r.q, pct=r.pct_correct|num) }}</li>{% endfor %}</ol>
+</div>
+
+{% for r in d.per_question %}
+<div class="card classq" id="cq-{{ r.q }}">
+  <h2 style="margin-top:0">{{ _("Question %(n)s", n=r.q) }} <span class="muted small">{{ _("%(pct)s%% correct", pct=r.pct_correct|num) }}</span></h2>
+  {{ show_text(r.text_parts) }}
+  <div class="table-wrap"><table class="answers-table">
+    {% for c in r.choices %}
+    <tr class="{{ 'keyrow' if c.is_key else '' }}">
+      <td style="width:42px"><span class="answer-letter">{{ c.letter }}</span><span class="keymark"> {{ _("(correct)") }}</span></td>
+      <td>{% for part in c.text_parts %}<div class="{{ 'mono' if part.code else '' }}">{{ part.text }}</div>{% endfor %}</td>
+      <td style="width:38%"><div class="pickbar"><span class="hbar-track"><span class="hbar-fill" style="width:{{ c.percent }}%"></span></span><span class="small">{{ c.percent|num }}%</span></div></td>
+    </tr>
+    {% endfor %}
+    {% if r.blank or r.multiple %}<tr><td></td><td class="muted small">{% if r.blank %}{{ _("left blank: %(n)s", n=r.blank) }}{% endif %}{% if r.blank and r.multiple %} · {% endif %}{% if r.multiple %}{{ _("several marks: %(n)s", n=r.multiple) }}{% endif %}</td><td></td></tr>{% endif %}
+  </table></div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var btn = document.getElementById("answers-toggle");
+  if (!btn) return;
+  var shown = false;
+  function apply() {
+    document.body.classList.toggle("answers-shown", shown);
+    btn.textContent = shown ? t("Hide the correct answers") : t("Show the correct answers");
+  }
+  btn.addEventListener("click", function () { shown = !shown; apply(); });
+  apply();
+})();
+</script>
+{% endblock %}

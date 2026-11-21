@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="{{ html_lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ _("Reveal") }} · MCQ-OMR</title>
+<style>
+  html, body { height:100%; margin:0; background:#0d0d0d; color:#f0efec; font: 18px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display:flex; flex-direction:column; -webkit-user-select:none; user-select:none; cursor:pointer; }
+  #stage { flex:1; display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; }
+  .hidden-state .big { font-size: clamp(22px, 5vw, 40px); color:#52514e; }
+  .num { font-size: clamp(34px, 8vw, 72px); font-weight:700; letter-spacing: 2px; }
+  .name { font-size: clamp(22px, 5vw, 44px); margin-top: 6px; color:#c3c2b7; }
+  .score { font-size: clamp(60px, 18vw, 160px); font-weight:800; line-height:1.05; margin-top: 18px; }
+  .pct { font-size: clamp(28px, 7vw, 64px); color:#c3c2b7; margin-top: 4px; }
+  .note { font-size: 16px; color:#898781; margin-top: 22px; }
+  .bar { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; font-size:13px; color:#52514e; }
+  .bar a { color:#52514e; text-decoration:none; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#2c2c2a; margin-right:8px; vertical-align:middle; }
+  .dot.ready { background:#0ca30c; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  .warn { color:#fab219; }
+</style>
+<script src="/i18n.js?lang={{ current_lang() }}&amp;v=1"></script>
+</head>
+<body class="hidden-state">
+<div class="bar">
+  <span><span class="dot" id="dot"></span><span id="status">{{ _("waiting for a scan…") }}</span></span>
+  <span><a href="#" id="again" title="{{ _("show the last revealed result once more") }}">{{ _("show last again") }}</a> &nbsp;·&nbsp;
+    <a href="{{ '/sets/' + exam.id if exam else '/' }}">{{ _("exit") }}</a></span>
+</div>
+<div id="stage"><div class="hidden-state"><div class="big">{{ _("tap to reveal") }}</div></div></div>
+<script>
+(function () {
+  const SET_ID = {{ (exam.id if exam else "")|tojson }};
+  const stage = document.getElementById("stage"), dot = document.getElementById("dot"), status = document.getElementById("status");
+  let latest = null;        // last scan seen on the server
+  let shownId = null;       // scan currently on screen (null = hidden)
+  let consumedId = null;    // last scan that was revealed and then hidden (never shown again by a plain tap)
+  let started = false;      // the page starts fresh: whatever was scanned before it opened counts as shown
+  let shownSeq = null;      // number of the shown scan within its exam (for the status line)
+  let hideTimer = null, hideLeft = 0;   // automatic hiding after "hide_after" seconds (Settings)
+
+  function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+  function stopHideTimer() { if (hideTimer) clearInterval(hideTimer); hideTimer = null; hideLeft = 0; }
+
+  function drawHidden(msg) {
+    stopHideTimer();
+    document.body.classList.add("hidden-state");
+    stage.innerHTML = `<div><div class="big">${esc(msg || t("tap to reveal"))}</div></div>`;
+    shownId = null;
+  }
+
+  function drawResult(s) {
+    document.body.classList.remove("hidden-state");
+    shownSeq = s.seq || s.scan_id;
+    stopHideTimer();
+    if (s.hide_after > 0) {            // hide by itself, as if the student had tapped again
+      hideLeft = s.hide_after;
+      hideTimer = setInterval(() => {
+        hideLeft--;
+        if (hideLeft <= 0) { if (shownId) consumedId = shownId; drawHidden(); }
+        updateBar();
+      }, 1000);
+    }
+    if (!s.student_no && s.status === "failed") {
+      stage.innerHTML = `<div><div class="num">${t("Sheet not read")}</div><div class="note">${t("Please hand the sheet back so it can be scanned again.")}</div></div>`;
+      shownId = s.scan_id; return;
+    }
+    let html = `<div><div class="num">${esc(s.student_no || "?")}</div>`;
+    if (s.show_name && s.name) html += `<div class="name">${esc(s.name)}</div>`;
+    if (s.score === null || s.score === undefined) {
+      html += `<div class="note warn">${t("This sheet needs a check by the lecturer - no score yet.")}</div>`;
+    } else {
+      if (s.show_score) html += `<div class="score">${s.score} / ${s.max_score}</div>`;
+      if (s.show_percent) html += `<div class="pct">${s.percent}%</div>`;
+      if (s.status !== "ok") html += `<div class="note warn">${t("Provisional: the sheet is marked for a check ({flags}).", { flags: esc((s.flags || []).map(window.tflag || String).join("; ")) })}</div>`;
+    }
+    html += `<div class="note">${t("scanned {when}", { when: esc(s.created || "") })}</div></div>`;
+    stage.innerHTML = html;
+    shownId = s.scan_id;
+  }
+
+  function updateBar() {
+    const fresh = latest && latest.scan_id && latest.scan_id !== consumedId && latest.scan_id !== shownId;
+    dot.className = "dot" + (fresh ? " ready" : "");
+    if (!latest || !latest.scan_id || (latest.scan_id === consumedId && !shownId && !revealedOnce))
+      status.textContent = t("waiting for a scan…");
+    else if (fresh) status.textContent = latest.student_no ? t("new result ready (#{n} {student})", { n: latest.seq || latest.scan_id, student: latest.student_no }) : t("new result ready (#{n})", { n: latest.seq || latest.scan_id });
+    else if (shownId) status.textContent = hideLeft > 0 ? t("showing #{n} - tap to hide (hides by itself in {s}s)", { n: shownSeq, s: hideLeft }) : t("showing #{n} - tap to hide", { n: shownSeq });
+    else status.textContent = t("last scan #{n} already shown - waiting for the next one", { n: latest.seq || latest.scan_id });
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch(`/api/last_scan?set_id=${encodeURIComponent(SET_ID)}`, { cache: "no-store" });
+      latest = await r.json();
+      if (!started) {
+        started = true;
+        // a result from before this page was opened (another exam, or the previous student after a
+        // reload) is never revealed by a tap; "show last again" still shows it on purpose
+        if (latest && latest.scan_id) consumedId = latest.scan_id;
+      }
+    } catch (e) { status.textContent = t("server not reachable"); }
+    updateBar();
+  }
+
+  let revealedOnce = false;  // something was revealed on this page (for the status line only)
+  function tap() {
+    if (shownId) {                       // hide, and remember that this one was shown
+      consumedId = shownId;
+      drawHidden();
+    } else if (latest && latest.scan_id && latest.scan_id !== consumedId) {
+      drawResult(latest);                // reveal the newest result
+      revealedOnce = true;
+    } else {
+      drawHidden(t("no new scan yet"));     // protects the previous student's result
+      setTimeout(() => { if (!shownId) drawHidden(); }, 1500);
+    }
+    updateBar();
+  }
+
+  stage.addEventListener("click", tap);
+  document.addEventListener("keydown", e => { if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); tap(); } });
+  document.getElementById("again").addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (latest && latest.scan_id) { drawResult(latest); updateBar(); }
+  });
+  poll();
+  setInterval(poll, 1500);
+})();
+</script>
+</body>
+</html>

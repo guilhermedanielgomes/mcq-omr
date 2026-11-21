@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Exam sets") }} · MCQ-OMR{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>{{ _("Exam sets") }}</h1>
+  <a class="btn" href="/sets/new">{{ _("+ New exam set") }}</a>
+</div>
+<div class="card">
+{% if sets %}
+<table>
+  <tr><th>{{ _("Title") }}</th><th>{{ _("Module") }}</th><th>{{ _("Set id") }}</th><th>{{ _("Questions") }}</th><th>{{ _("Versions") }}</th><th>{{ _("Scans") }}</th><th>{{ _("Created") }}</th></tr>
+  {% for s in sets %}
+  <tr>
+    <td><a href="/sets/{{ s.id }}">{{ s.title or _("(untitled)") }}</a></td>
+    <td>{{ s.module }}</td>
+    <td><code>{{ s.id }}</code></td>
+    <td>{{ s.n_questions }}</td>
+    <td>{{ s.n_versions }}</td>
+    <td>{{ s.n_scans }}</td>
+    <td class="muted small">{{ s.created }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">{{ _("No exam sets yet. Create one, type or paste the questions, generate the versions, print the PDF, and scan the sheets with the phone app.") }}</p>
+{% endif %}
+</div>
+<p class="hint">{{ _("Workflow: <b>1</b> questions, <b>2</b> generate N versions (one per student), <b>3</b> print <i>papers + answer sheets</i> PDF, <b>4</b> exam, <b>5</b> photograph each sheet with the phone app, <b>6</b> review the flagged ones, <b>7</b> download the results spreadsheet.") }}</p>
+{% endblock %}
