@@ -83,9 +83,24 @@ def init(db_path: Path | str | None = None):
                 c.execute("ALTER TABLE students ADD COLUMN email TEXT")
             if "email_custom" not in cols:
                 c.execute("ALTER TABLE students ADD COLUMN email_custom INTEGER NOT NULL DEFAULT 0")
+            if db_path is None:
+                _network_defaults(c)
     finally:
         if db_path is not None:
             conn.close()
+
+
+def _network_defaults(c: sqlite3.Connection):
+    """The password for other devices (Settings > Network), decided once and stored: on for a new
+    installation (no exam sets and no scans the first time this version starts), off for one that
+    already has data, so a phone in use keeps working until the teacher switches it on."""
+    have = {r["key"] for r in c.execute("SELECT key FROM settings WHERE key IN ('lan_protect', 'lan_password')")}
+    if "lan_password" not in have:
+        from omr.network import new_password
+        c.execute("INSERT INTO settings(key, value) VALUES('lan_password', ?)", (json.dumps(new_password()),))
+    if "lan_protect" not in have:
+        used = c.execute("SELECT EXISTS(SELECT 1 FROM sets) OR EXISTS(SELECT 1 FROM scans)").fetchone()[0]
+        c.execute("INSERT INTO settings(key, value) VALUES('lan_protect', ?)", (json.dumps(not used),))
 
 
 # ---- exam sets --------------------------------------------------------------
@@ -100,6 +115,7 @@ def list_sets() -> list[dict]:
             "id": r["id"], "created": r["created"],
             "title": exam.get("meta", {}).get("title", ""),
             "module": exam.get("meta", {}).get("module", ""),
+            "course": exam.get("meta", {}).get("course", ""),     # the class of the set ("" = all students)
             "n_questions": len(exam.get("questions", [])),
             "n_versions": len(exam.get("versions", [])),
             "n_scans": counts.get(r["id"], 0),
@@ -326,6 +342,9 @@ DEFAULT_SETTINGS = {
     "color_wrong": "#e03131",
     "color_blank": "#f0a500",
     "color_multiple": "#8e24aa",
+    # other devices on the network need lan_password (Settings > Network); stored by init() on the first start
+    "lan_protect": False,
+    "lan_password": "",
 }
 COLOR_KEYS = ("color_right", "color_wrong", "color_blank", "color_multiple")
 
@@ -346,6 +365,30 @@ def settings_set(**values):
         for k, v in values.items():
             c.execute("INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                       (k, json.dumps(v)))
+
+
+NETWORK_KEYS = ("lan_protect", "lan_password")   # belong to this computer: never in a backup
+
+
+def set_lan_protect(on: bool) -> bool:
+    """Switch the password for other devices (Settings > Network) on or off. Switching it on when it was
+    off always makes a new password, so one seen earlier (or kept in an old backup) no longer works.
+    Returns True when a new password was made."""
+    from omr.network import new_password
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT value FROM settings WHERE key='lan_protect'").fetchone()
+        try:
+            was = bool(json.loads(row["value"])) if row else False
+        except (TypeError, ValueError):
+            was = False
+        values = {"lan_protect": bool(on)}
+        if on and not was:
+            values["lan_password"] = new_password()
+        for k, v in values.items():
+            c.execute("INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (k, json.dumps(v)))
+    return bool(on) and not was
 
 
 def parse_bands(text: str) -> list[tuple[float, str]]:

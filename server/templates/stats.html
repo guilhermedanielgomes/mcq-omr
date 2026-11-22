@@ -23,10 +23,11 @@
     <a class="btn secondary small" href="/sets/{{ exam.id }}/reveal">{{ _("Reveal page") }}</a>
     <a class="btn secondary small" href="/sets/{{ exam.id }}#results">{{ _("Back to exam set") }}</a>
   </div>
-</div>
-<div id="stats" class="viz-root"><p class="muted">{{ _("Loading…") }}</p></div>
+</div>{% if class_empty %}
+<p class="note">{{ _("No sheet of the class %(course)s is counted yet, so all students are shown.", course=class_empty) }}</p>{% endif %}
+<div id="stats" class="viz-root" data-sortable><p class="muted">{{ _("Loading…") }}</p></div>
 {% endblock %}
 {% block scripts %}
-<script>window.SET_ID = {{ exam.id|tojson }}; window.COURSE = {{ course|tojson }};</script>
-<script src="/static/stats.js?v=5"></script>
+<script>window.SET_ID = {{ exam.id|tojson }}; window.COURSE = {{ course|tojson }};{% if exam.meta.course %} window.HAS_CLASS = true;{% endif %}</script>
+<script src="/static/stats.js?v=6"></script>
 {% endblock %}

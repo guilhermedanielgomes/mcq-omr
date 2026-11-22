@@ -12,7 +12,7 @@ The interface is available in English, Português (Brasil), Español, Français,
 
 ## What it does
 
-- **Exams**: type or paste the questions (one block per question, `*` before the correct choice), then generate as many shuffled versions as you need.
+- **Exams**: type or paste the questions (one block per question, `*` before the correct choice, and optionally a `TOPIC:` line), then generate as many shuffled versions as you need.
 - **Printing**: one PDF with every student's answer sheet followed by their paper, plus double-sided printing and answer keys.
 - **Reading the sheets**:
   - with the phone app over your Wi-Fi;
@@ -23,13 +23,13 @@ The interface is available in English, Português (Brasil), Español, Français,
 - **Results**:
   - the results table, sortable and filterable by course;
   - an Excel export;
-  - statistics for the class and for each question (how hard it was, how well it separates strong and weak students, which wrong answers attracted whom);
+  - statistics for the class and for each question (how hard it was, how well it separates strong and weak students, which wrong answers attracted whom), and by topic when the questions have topics;
   - a page and a PDF report for each student;
   - a "reveal" page to show each student their mark as their sheet is scanned.
 - **Statistics for students**: the same exam figures with no names, numbers or marks, to show the class how the exam went. The correct answers stay hidden until you reveal them.
 - **Progress**: compare MCQs of the same module: who missed one, who improved or declined, and the class change.
 - **Backups**: one .zip file with everything, from Settings or from the app window. Restore it on the same or another computer.
-- **Students and courses (optional)**: paste your class list, put students into courses and copy the email addresses of any list of students.
+- **Students and courses (optional)**: paste your class list, put students into courses and copy the email addresses of any list of students. An exam set can be given a class: its results and statistics then open on the students of that class, and it lists the students of the class not scanned yet.
 
 ## Install (no technical knowledge needed)
 
@@ -53,7 +53,7 @@ Download the installer for your computer from the **[Releases page](https://gith
 Open **MCQ-OMR** like any other app (Start menu, Launchpad / Applications, or your applications menu).
 
 - The app opens in your web browser, at `http://localhost:8000`.
-- A small MCQ-OMR window shows two addresses: one for this computer, and one to type into the phone app.
+- A small MCQ-OMR window shows two addresses: one for this computer, and one to type into the phone app. It also shows the password the phone needs (see Privacy below).
 - The phone must be on the same Wi-Fi network as the computer.
 - **Keep the small window open while you work. Closing it stops MCQ-OMR.**
 
@@ -89,7 +89,14 @@ Uninstalling **does not delete your data**. Delete the data folder above yoursel
 
 - MCQ-OMR does not contact any server on the internet: no accounts, no analytics, no fonts or scripts loaded from elsewhere. Exams, photos, students and results stay in the data folder on your computer.
 - The phone app sends photos directly to your computer over your Wi-Fi network.
-- While MCQ-OMR is running, other devices on the same network can open its pages if they know the address. On a network you do not control (a school or campus Wi-Fi), set a password (`MCQ_TOKEN`, see below) or use a private network.
+- **A password for other devices.** MCQ-OMR listens on your network so the phone app can reach it. To keep others on the same Wi-Fi out, every phone, tablet or computer other than the one running MCQ-OMR needs a password. The computer running MCQ-OMR never needs it.
+  - A new installation has this switched on, with a password made for it. An installation that already had exams when it was updated keeps working as before, without a password, until you switch it on in **Settings → Network**. When it is off, anyone on the same network who knows the address can open every page, including student names and results.
+  - The password and a pairing QR code are in **Settings → Network** and in the small MCQ-OMR window. **New password** makes another one; the old one stops working on every device.
+  - **Pairing the phone:** type the password into the phone app's password field (next to the server address), or scan the QR code with a phone app that supports pairing. The QR code holds `mcqomr://pair?u=<server address>&t=<password>`.
+  - Another computer, such as a projector laptop for the reveal page, asks for the password once and then stays signed in.
+  - Without a window (`run.py`, Docker), the password is printed when the server starts. In Docker every browser, the host's too, counts as another device.
+- Pages refuse form posts sent from other web sites, so a page you visit cannot change your data in MCQ-OMR behind your back.
+- On a network you do not control (a school or campus Wi-Fi), keep the password switched on, or use a private network.
 
 ## Run from the source code (for developers)
 
@@ -107,7 +114,7 @@ python run.py                      # or: python desktop.py   (the same small win
 
 - `run.py` keeps the data in `server/data/`. `desktop.py` uses the per-user folder above.
 - Set `MCQ_DATA=/some/folder` to choose another folder, and `MCQ_PORT` (desktop.py) or `python run.py 8080` to use another port.
-- **Optional password**: set `MCQ_TOKEN=some-secret` before starting. The browser then asks for it once, and the phone app sends it as its token. Use this if the computer is on a network you don't trust.
+- **Optional access token**: set `MCQ_TOKEN=some-secret` before starting. Every device then needs it, this computer too: the browser asks for it once, and the phone app sends it as its password. While it is set, it is used instead of the password in Settings → Network.
 - **Docker** (for example on a home server): see `server/Dockerfile`.
 - **Tests**: `python tests/synthetic_test.py` (needs `pip install pymupdf`). It makes fake phone photos of filled answer sheets (rotated, blurred, shadowed, upside down, ticks instead of fills) and checks that they are read correctly.
 

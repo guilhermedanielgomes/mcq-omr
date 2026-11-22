@@ -29,7 +29,9 @@
 {% if ind and ind.available %}
 <div class="card indstats">
   <h2 style="margin-top:0">{{ _("Individual statistics") }}</h2>
-  {% if not ind.counted %}<p class="note warn">{{ _("This scan is not the one that counts for this student (or is not scored yet): it is compared with the class, but is not part of the class figures.") }}</p>{% endif %}
+  {% if not ind.counted %}<p class="note warn">{{ _("This scan is not the one that counts for this student (or is not scored yet): it is compared with the class, but is not part of the class figures.") }}</p>{% endif %}{% if ind.class_scope == "out" %}
+  <p class="note">{{ _("This student is not in the class of this exam (%(course)s), so the comparison is with everyone who sat it.", course=ind.exam_class) }}</p>{% elif ind.class_scope == "in" %}
+  <p class="note">{{ _("The class figures are for the class %(course)s only.", course=ind.exam_class) }}</p>{% endif %}
   <div class="tiles">
     <div class="tile"><div class="tile-label">{{ _("Place in the class") }}</div>
       <div class="tile-value">{% if ind.n_ranked > 1 %}{{ _('%(rank)s <span class="small muted">of %(n)s</span>', rank=ind.rank, n=ind.n_ranked) }}{% else %}–{% endif %}</div>
@@ -77,13 +79,25 @@
   {% else %}
   <p class="hint">{{ _("The comparison by question difficulty appears once %(min)s or more sheets of this exam are scored (%(n)s so far).", min=5, n=ind.n_class) }}</p>
   {% endif %}
-  {% if ind.history|length > 1 %}
+  {% if ind.topics %}<h3>{{ _("By topic") }}</h3>
+  <div class="table-wrap"><table>
+    <tr><th>{{ _("Topic") }}</th><th>{{ _("Right") }}</th>{% if ind.difficulty_ok %}<th>{{ _("Class") }}</th>{% endif %}<th style="width:30%"></th><th></th></tr>
+    {% for x in ind.topics %}
+    <tr><td>{% if x.topic is none %}<span class="muted">{{ _("No topic") }}</span>{% else %}{{ x.topic }}{% endif %}</td>
+      <td>{{ x.right }} / {{ x.n }} ({{ x.percent|num }}%)</td>{% if ind.difficulty_ok %}<td>{{ x.class_pct|num }}%</td>{% endif %}
+      <td><span class="hbar-track"><span class="hbar-fill" style="width:{{ x.percent }}%"></span></span></td>
+      <td>{% if x.below %}<span class="tag hardtag">{{ _("Worth revising") }}</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% if ind.difficulty_ok %}<p class="hint">{{ _("Class = the share of right answers of the whole class on that topic. \"Worth revising\" marks a topic at least %(n)s points under the class.", n=ind.topic_below|num) }}</p>
+  {% else %}<p class="hint">{{ _("The class figure for each topic appears once %(min)s or more sheets of this exam are scored (%(n)s so far).", min=5, n=ind.n_class) }}</p>{% endif %}
+  {% endif %}{% if ind.history|length > 1 %}
   <h3>{{ _("All exams of this student") }}</h3>
   {% set cur = ind.history|selectattr("set_id", "equalto", exam.id)|first %}
   {% set missed = ind.history|selectattr("absent")|list %}
   {% if cur and cur.change is not none %}{% set chg %}<b class="{{ 'up' if cur.change > 0 else ('down' if cur.change < 0 else '') }}">{{ _("%(n)s points", n=('+' if cur.change > 0 else ('−' if cur.change < 0 else '')) ~ (cur.change|abs)|num) }}</b>{% endset %}<p>{% if cur.pos_change is none %}{{ _("Since %(exam)s: %(change)s.", exam=cur.prev_title, change=chg) }}{% elif cur.pos_change > 0 %}{{ _("Since %(exam)s: %(change)s, place in the class up by %(p)s percentile points.", exam=cur.prev_title, change=chg, p=(cur.pos_change|abs)|num) }}{% elif cur.pos_change < 0 %}{{ _("Since %(exam)s: %(change)s, place in the class down by %(p)s percentile points.", exam=cur.prev_title, change=chg, p=(cur.pos_change|abs)|num) }}{% else %}{{ _("Since %(exam)s: %(change)s, place in the class unchanged.", exam=cur.prev_title, change=chg) }}{% endif %}{% if missed %} {{ _("Did not sit %(exams)s.", exams=missed|map(attribute="title")|join(", ")) }}{% endif %}</p>
   {% elif missed %}<p>{{ _("Did not sit %(exams)s.", exams=missed|map(attribute="title")|join(", ")) }}</p>{% endif %}
-  <table>
+  <table data-sortable>
     <tr><th>{{ _("Exam") }}</th><th>{{ _("Date") }}</th><th>{{ _("Score") }}</th><th>%</th><th title="{{ _("since the previous MCQ of the same module") }}">{{ _("Change") }}</th><th>{{ _("Class mean") }}</th><th>{{ _("Place") }}</th></tr>
     {% for h in ind.history %}
     {% if h.absent %}

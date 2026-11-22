@@ -23,7 +23,8 @@
       <select name="course" onchange="this.form.submit()">
         <option value="">{{ _("All students") }}</option>
         {% for c in course_list %}<option value="{{ c }}" {% if c == course %}selected{% endif %}>{{ c }}</option>{% endfor %}
-        <option value="{{ no_course }}" {% if course == no_course %}selected{% endif %}>{{ _("No course set") }}</option>
+        <option value="{{ no_course }}" {% if course == no_course %}selected{% endif %}>{{ _("No course set") }}</option>{% if course and course != no_course and course not in course_list %}
+        <option value="{{ course }}" selected>{{ course }}</option>{% endif %}
       </select>
       {% endif %}
       <div style="margin-top:10px"><button type="submit">{{ _("Show") }}</button></div>
@@ -47,10 +48,10 @@
 
 <div class="card">
   <h2 style="margin-top:0">{{ _("Each MCQ") }}</h2>
-  <div class="table-wrap"><table>
+  <div class="table-wrap"><table data-sortable>
     <tr><th>{{ _("MCQ") }}</th><th>{{ _("Date") }}</th><th>{{ _("Sat") }}</th><th>{{ _("Missed") }}</th><th>{{ _("Mean") }}</th><th>{{ _("Pass rate (≥ %(pct)s%%)", pct=d.pass_mark|num) }}</th><th></th></tr>
     {% for s in d.sets %}
-    <tr><td><a href="/sets/{{ s.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ s.title }}</a></td><td>{{ s.created }}</td>
+    <tr><td><a href="/sets/{{ s.id }}/stats{{ ('?course=' ~ course|urlencode) if course else ('?course=' if set_class.get(s.id) else '') }}">{{ s.title }}</a></td><td>{{ s.created }}</td>
       <td>{{ s.n_sat }}</td><td>{{ s.n_missed }}</td><td>{{ (s.mean|num ~ '%') if s.mean is not none else '–' }}</td>
       <td>{{ (s.pass_rate|num ~ '%') if s.pass_rate is not none else '–' }}</td>
       <td class="small muted">{% if s.n_sat > s.n_scored %}{{ _("%(n)s to review", n=s.n_sat - s.n_scored) }}{% endif %}{% if s.unreadable %}{% if s.n_sat > s.n_scored %} · {% endif %}{{ ngettext("%(n)s sheet with an unreadable number (not counted here)", "%(n)s sheets with an unreadable number (not counted here)", s.unreadable) }}{% endif %}</td></tr>
@@ -83,11 +84,11 @@
     difficulty: "place in class" compares each student with the whole class in each MCQ instead (percentile; + = moved up).') }}</p>
   {% endif %}
   <div class="grid2">
-    {% if p.up %}<div><h3>{{ _("Improved most") }} {{ copy_btn(p.up|map(attribute="student_no")|list, emails) }}</h3><table>
+    {% if p.up %}<div><h3>{{ _("Improved most") }} {{ copy_btn(p.up|map(attribute="student_no")|list, emails) }}</h3><table data-sortable>
       <tr><th>{{ _("Student") }}</th><th>{{ p.a }}</th><th>{{ p.b }}</th><th>{{ _("Change") }}</th><th>{{ _("Place in class") }}</th></tr>
       {% for c in p.up %}<tr><td>{{ person(c) }}</td><td><a href="/scans/{{ c.scan_a }}/sheet">{{ c.a|num }}%</a></td><td><a href="/scans/{{ c.scan_b }}/sheet">{{ c.b|num }}%</a></td><td class="up">{{ signed(c.change) }}</td><td>{{ signed(c.pos_change) }}</td></tr>{% endfor %}
     </table></div>{% endif %}
-    {% if p.down %}<div><h3>{{ _("Declined most") }} {{ copy_btn(p.down|map(attribute="student_no")|list, emails) }}</h3><table>
+    {% if p.down %}<div><h3>{{ _("Declined most") }} {{ copy_btn(p.down|map(attribute="student_no")|list, emails) }}</h3><table data-sortable>
       <tr><th>{{ _("Student") }}</th><th>{{ p.a }}</th><th>{{ p.b }}</th><th>{{ _("Change") }}</th><th>{{ _("Place in class") }}</th></tr>
       {% for c in p.down %}<tr><td>{{ person(c) }}</td><td><a href="/scans/{{ c.scan_a }}/sheet">{{ c.a|num }}%</a></td><td><a href="/scans/{{ c.scan_b }}/sheet">{{ c.b|num }}%</a></td><td class="down">{{ signed(c.change) }}</td><td>{{ signed(c.pos_change) }}</td></tr>{% endfor %}
     </table></div>{% endif %}
@@ -109,7 +110,7 @@
   <h2 style="margin-top:0">{{ _("Worth a look") }} <span class="muted small">{{ ngettext("%(n)s student", "%(n)s students", d.flagged|length) }}</span>
     {{ copy_btn(d.flagged|map(attribute="student_no")|list, emails) }}</h2>
   <p class="hint" style="margin-top:0">{{ _("Missed the latest MCQ, below the pass mark in it, or dropped %(n)s points or more between their last two.", n=10) }}</p>
-  <div class="table-wrap"><table>
+  <div class="table-wrap"><table data-sortable>
     <tr><th>{{ _("Student") }}</th>{% for s in d.sets %}<th>{{ s.title }}</th>{% endfor %}<th>{{ _("Why") }}</th></tr>
     {% for r in d.flagged %}<tr><td>{{ person(r) }}</td>{% for c in r.cells %}<td>{{ cell(c) }}</td>{% endfor %}<td class="small">{{ r.flags|join("; ") }}</td></tr>{% endfor %}
   </table></div>
@@ -124,7 +125,7 @@
     <a href="#" data-f="flag">{{ _("worth a look (%(n)s)", n=d.flagged|length) }}</a>
     {% if emails %}<button type="button" class="small secondary copyemails" data-from="#everyone" title="{{ _("copy the email addresses of the students shown (the filter chosen), separated by ;") }}">{{ _("Copy emails of the students shown") }}</button>{% endif %}
   </div>
-  <div class="table-wrap"><table id="everyone">
+  <div class="table-wrap"><table id="everyone" data-sortable>
     <tr><th>{{ _("Student") }}</th><th>{{ _("Name") }}</th>{% if not course %}<th>{{ _("Course") }}</th>{% endif %}{% for s in d.sets %}<th>{{ s.title }}</th>{% endfor %}{% if d.sets|length > 1 %}<th title="{{ _("from the first to the last MCQ the student has a score in") }}">{{ _("Change") }}</th>{% endif %}</tr>
     {% for r in d.rows %}
     <tr data-student="{{ r.student_no }}" data-email="{{ emails.get(r.student_no, '') }}" data-missed="{{ 1 if r.missed else 0 }}" data-flag="{{ 1 if (r.flags and r.n_sat) else 0 }}">

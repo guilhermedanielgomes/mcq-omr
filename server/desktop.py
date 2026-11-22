@@ -12,6 +12,8 @@ folder and to stop. Closing the window stops the server.
     An existing MCQ_DATA environment variable wins, as with run.py.
   * Port 8000 (what the phone app expects) unless it is taken, then the next free one up to 8019
     (MCQ_PORT changes the starting port).
+  * Other devices on the network need a password when Settings > Network asks for one: the window
+    shows it, with a button for the phone pairing QR code (or a way to switch it on when it is off).
   * Opening the app a second time just opens the browser at the copy already running.
   * The window's language: the one chosen in Settings (or in the window's Language drop-down), else
     the computer's language. The Windows installer may leave initial-language.txt (e.g. "pt_BR")
@@ -91,14 +93,17 @@ INITIAL_LANGUAGE_FILE = DATA / "initial-language.txt"     # written by the Windo
 
 
 def lan_ip() -> str:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("10.255.255.255", 1))    # nothing is sent (UDP connect); this only picks the network interface
-        return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        s.close()
+    from omr.network import lan_ip as find
+    return find()
+
+
+def network_state() -> tuple[bool, str] | None:
+    """(protection on, password) of Settings > Network, or None when MCQ_TOKEN is used instead."""
+    if os.environ.get("MCQ_TOKEN", "").strip():
+        return None
+    from omr import db
+    st = db.settings_get()
+    return bool(st.get("lan_protect")), str(st.get("lan_password") or "")
 
 
 def ours_running(port: int) -> bool:
@@ -259,6 +264,9 @@ class LauncherWindow:
         self.status = None
         self.lang_box = None
         self.lang_codes: list[str] = []
+        self.network_seen = None
+        self.qr_window = None
+        self.qr_image = None
         self.build()
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
         self.root.after(2000, self.watch)
@@ -296,8 +304,11 @@ class LauncherWindow:
 
         address_row(2, tr("On this computer:"), self.local_url)
         address_row(3, tr("In the phone app:"), self.phone_url)
-        ttk.Label(frm, text=tr("The phone must be on the same network (Wi-Fi) as this computer."),
-                  foreground="#666").grid(column=0, row=4, columnspan=2, sticky="w", pady=(2, 12))
+        net = ttk.Frame(frm)
+        net.grid(column=0, row=4, columnspan=2, sticky="w", pady=(2, 12))
+        ttk.Label(net, text=tr("The phone must be on the same network (Wi-Fi) as this computer."),
+                  foreground="#666").grid(column=0, row=0, columnspan=3, sticky="w")
+        self.build_network(net)
 
         btns = ttk.Frame(frm)
         btns.grid(column=0, row=5, columnspan=2, sticky="w")
@@ -333,6 +344,76 @@ class LauncherWindow:
 
         if self.stopped:
             self._show_stopped()
+
+    def build_network(self, net):
+        """The password other devices need (Settings > Network), or a note that none is needed."""
+        from tkinter import ttk
+
+        if self.qr_window is not None:            # rebuilt (language, new password): the old QR code goes
+            self.qr_window.destroy()
+            self.qr_window = None
+        try:
+            state = self.network_seen = network_state()
+        except Exception:
+            log.exception("could not read the network settings")
+            return
+        if state is None:
+            ttk.Label(net, text=tr("This server uses an access token (MCQ_TOKEN). The phone app needs it as its password."),
+                      wraplength=460, justify="left").grid(column=0, row=1, columnspan=3, sticky="w", pady=(6, 0))
+            return
+        protect, password = state
+        if protect:
+            ttk.Label(net, text=tr("Phone password:")).grid(column=0, row=1, sticky="w", padx=(0, 10), pady=(6, 0))
+            e = ttk.Entry(net, width=16, font=("TkFixedFont", 13))
+            e.insert(0, password)
+            e.configure(state="readonly")
+            e.grid(column=1, row=1, sticky="w", pady=(6, 0))
+            ttk.Button(net, text=tr("Pairing QR code"), command=self.show_qr).grid(column=2, row=1, padx=(6, 0), pady=(6, 0))
+            ttk.Label(net, text=tr("Type it into the phone app's password field, or scan the QR code with a phone app "
+                                   "that supports pairing."), foreground="#666", wraplength=460, justify="left").grid(
+                column=0, row=2, columnspan=3, sticky="w", pady=(2, 0))
+        else:
+            ttk.Label(net, text=tr("Anyone on this network can open MCQ-OMR without a password."), foreground="#b26a00",
+                      wraplength=320, justify="left").grid(column=0, row=1, columnspan=2, sticky="w", pady=(6, 0))
+            ttk.Button(net, text=tr("Ask for a password"), command=self.protect_on).grid(
+                column=2, row=1, padx=(6, 0), pady=(6, 0))
+
+    def protect_on(self):
+        from omr import db
+        db.set_lan_protect(True)              # switched on: always a new password (shown by build)
+        self.root.after_idle(self.build)
+
+    def show_qr(self):
+        """A small window with the pairing QR code: mcqomr://pair?u=<phone address>&t=<password>."""
+        import base64
+        import tkinter as tk
+        from tkinter import ttk
+
+        from omr import network
+        state = network_state()
+        if not state:
+            return
+        if self.qr_window is not None:
+            self.qr_window.destroy()
+        win = self.qr_window = tk.Toplevel(self.root)
+        win.title(tr("Pairing QR code"))
+        win.resizable(False, False)
+        png = network.qr_png(network.pair_url(self.phone_url, state[1]), box_size=6)
+        self.qr_image = tk.PhotoImage(master=win, data=base64.b64encode(png).decode("ascii"))   # kept, or it goes blank
+        box = ttk.Frame(win, padding=14)
+        box.grid()
+        ttk.Label(box, image=self.qr_image).grid(column=0, row=0)
+        ttk.Label(box, text=tr("Scan this with a phone app that supports pairing."), wraplength=300,
+                  justify="center").grid(column=0, row=1, pady=(8, 0))
+        ttk.Label(box, text=tr("Password: %(password)s", password=state[1]), font=("TkFixedFont", 13)).grid(
+            column=0, row=2, pady=(4, 0))
+        ttk.Button(box, text=tr("Close"), command=self.close_qr).grid(column=0, row=3, pady=(10, 0))
+        win.protocol("WM_DELETE_WINDOW", self.close_qr)
+
+    def close_qr(self):
+        if self.qr_window is not None:
+            self.qr_window.destroy()
+            self.qr_window = None
 
     def choose_language(self, index: int):
         """The Language drop-down: save the choice and rebuild the window in that language."""
@@ -436,6 +517,11 @@ class LauncherWindow:
             self._title()
             self._show_stopped()
             return
+        try:                                  # the password changed in Settings: show the new one
+            if network_state() != self.network_seen:
+                self.build()
+        except Exception:
+            log.exception("could not read the network settings")
         self.root.after(2000, self.watch)
 
     def run(self):
@@ -494,6 +580,12 @@ def main():
     print("=" * 60)
     print(f"  On this computer:   {local_url}")
     print(f"  Phone app server:   {phone_url}")
+    try:
+        state = network_state()
+        if state and state[0]:
+            print(f"  Phone password:     {state[1]}")
+    except Exception:
+        log.exception("could not read the network settings")
     print(f"  Data folder:        {DATA}")
     print("=" * 60)
     if not no_browser:

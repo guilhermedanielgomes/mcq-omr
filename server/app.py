@@ -24,9 +24,11 @@ API (used by the Android app and the pages):
 from __future__ import annotations
 
 import io
+import ipaddress
 import json
+import logging
 import re
-from urllib.parse import quote, quote_plus, urlencode
+from urllib.parse import quote, quote_plus, urlencode, urlsplit
 import os
 import secrets
 import shutil
@@ -47,6 +49,7 @@ from omr import db
 from omr import i18n
 from omr.i18n import tr
 from omr import layout as L
+from omr import network
 from omr.export import build_keys_csv, build_results_xlsx
 from omr.parsers import parse_bulk, questions_to_text
 from omr.pdfgen import DEFAULT_LOGO, build_keys_pdf, build_pdf, build_pdf_duplex, sheet_info
@@ -60,6 +63,9 @@ BASE = Path(__file__).resolve().parent
 TOKEN = os.environ.get("MCQ_TOKEN", "").strip()   # optional shared secret (see README)
 
 db.init()
+if not TOKEN and db.settings_get().get("lan_protect"):   # a server without a window (Docker, run.py): the password is in the log
+    logging.getLogger("uvicorn.error").info("Other devices need this password: %s (Settings > Network)",
+                                            db.settings_get().get("lan_password"))
 app = FastAPI(title="MCQ-OMR")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 app.mount("/files", StaticFiles(directory=db.SCAN_DIR), name="files")
@@ -93,14 +99,18 @@ templates.env.filters["emails_of"] = lambda nos, emails: [emails[n] for n in nos
 async def language(request: Request, call_next):
     """The interface language for this request: Settings, or the browser's ("automatic"). The phone
     app's /api/ answers always stay in English."""
-    if request.url.path.startswith(("/api/", "/static/", "/files/")):
-        token = i18n.set_language("en")
-    else:
-        token = i18n.set_language(i18n.choose(db.settings_get().get("language"), request.headers.get("accept-language")))
+    token = i18n.set_language(_language_for(request))
     try:
         return await call_next(request)
     finally:
         i18n._lang.reset(token)
+
+
+def _language_for(request: Request) -> str:
+    """The language of the answer to this request (see the language middleware)."""
+    if request.url.path.startswith(("/api/", "/static/", "/files/")):
+        return "en"
+    return i18n.choose(db.settings_get().get("language"), request.headers.get("accept-language"))
 
 
 @app.get("/i18n.js")
@@ -124,27 +134,259 @@ def settings_language(language: str = Form("")):
     return RedirectResponse("/settings#language", status_code=303)
 
 
+# ---------------------------------------------------------------------------
+# password for other devices (Settings > Network) and the MCQ_TOKEN access token
+# ---------------------------------------------------------------------------
+# MCQ_TOKEN set: every request needs it, from this computer too (as before). Otherwise, with
+# "lan_protect" on, every request that does not come from this computer needs "lan_password".
+# Either one is accepted from the x-token header (the phone app), ?token= or the mcq_token cookie.
+OPEN_PATHS = ("/static", "/login", "/i18n.js")
+LAN_COOKIE_AGE = 400 * 24 * 3600     # a projector laptop signs in once
+
+
+def _supplied(request: Request) -> str:
+    return (request.headers.get("x-token") or request.query_params.get("token")
+            or request.cookies.get("mcq_token") or "")
+
+
+def _lan_key(text: str) -> bytes:
+    """The password as compared: capitals, spaces and dashes do not matter (typed on a phone)."""
+    return re.sub(r"[\s-]+", "", str(text)).lower().encode("utf-8")
+
+
+def _lan_password_ok(supplied: str, password: str) -> bool:
+    return bool(password) and secrets.compare_digest(_lan_key(supplied), _lan_key(password))
+
+
+def _network() -> tuple[bool, str]:
+    st = db.settings_get()
+    return bool(st.get("lan_protect")), str(st.get("lan_password") or "")
+
+
+OWN_ADDRESS_SECONDS = 10           # this computer's network address is looked up again after this
+_OWN: dict = {}
+
+
+def _ip(text: str | None):
+    """An IP address from a text (brackets of [::1] allowed; ::ffff:1.2.3.4 as 1.2.3.4), or None."""
+    try:
+        ip = ipaddress.ip_address(str(text or "").strip("[]"))
+    except ValueError:
+        return None
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip
+
+
+def _own_ips() -> set:
+    """This computer's own address on the network (cached for a few seconds: the Wi-Fi can change)."""
+    now = time.monotonic()
+    if not _OWN or now - _OWN["at"] > OWN_ADDRESS_SECONDS:
+        ip = _ip(network.lan_ip())
+        _OWN.update(at=now, ips={ip} if ip is not None else set())
+    return _OWN["ips"]
+
+
+def _allowed_host(request: Request) -> bool:
+    """The address in the browser (the Host header) names this computer: localhost, 127.x.x.x, [::1] or
+    this computer's own network address. Any other name could be a web site whose name was pointed at
+    this computer (DNS rebinding), so it is not trusted as this computer."""
+    hp = _host_port("http", request.headers.get("host", ""))
+    if not hp or not hp[0]:
+        return False
+    if hp[0] == "localhost":
+        return True
+    ip = _ip(hp[0])
+    return ip is not None and (ip.is_loopback or ip in _own_ips())
+
+
+def _ip_host(request: Request) -> bool:
+    """The address in the browser is an IP address (not a name)."""
+    hp = _host_port("http", request.headers.get("host", ""))
+    return bool(hp and hp[0]) and _ip(hp[0]) is not None
+
+
+def _local_connection(request: Request) -> bool:
+    """The connection comes from this computer: a loopback address or this computer's own network address."""
+    host = request.client.host if request.client else None
+    if network.is_loopback(host):
+        return True
+    ip = _ip(host)
+    return ip is not None and ip in _own_ips()
+
+
+def _from_this_computer(request: Request) -> bool:
+    return _local_connection(request) and _allowed_host(request)
+
+
+def _authenticated(request: Request) -> bool:
+    """The request carries the access token (MCQ_TOKEN) or the password for other devices."""
+    if TOKEN:
+        return secrets.compare_digest(_supplied(request).encode("utf-8"), TOKEN.encode("utf-8"))
+    return _lan_password_ok(_supplied(request), _network()[1])
+
+
+def _may_see_password(request: Request) -> bool:
+    """The password and the pairing QR code: only for this computer or a request that has the password."""
+    if TOKEN:
+        return _authenticated(request)
+    return _from_this_computer(request) or _authenticated(request)
+
+
+def _safe_next(target: str) -> str:
+    """Only a path on this server (no //other.host, no backslashes) to go back to after signing in."""
+    target = str(target or "")
+    if not target.startswith("/") or target.startswith("//") or "\\" in target or any(ord(ch) < 32 for ch in target):
+        return "/"
+    return target
+
+
+def _to_login(request: Request) -> RedirectResponse:
+    """To /login, which then goes back to the page asked for (without a ?token= that did not work)."""
+    query = urlencode([(k, v) for k, v in request.query_params.multi_items() if k != "token"])
+    asked = request.url.path + ("?" + query if query else "")
+    return RedirectResponse("/login" + ("?" + urlencode({"next": asked}) if asked != "/" else ""), status_code=303)
+
+
 @app.middleware("http")
 async def token_guard(request: Request, call_next):
-    if TOKEN and not request.url.path.startswith(("/static", "/login", "/i18n.js")):
-        supplied = (request.headers.get("x-token") or request.query_params.get("token")
-                    or request.cookies.get("mcq_token") or "")
-        if not secrets.compare_digest(supplied, TOKEN):
+    if TOKEN and not request.url.path.startswith(OPEN_PATHS):
+        if not secrets.compare_digest(_supplied(request).encode("utf-8"), TOKEN.encode("utf-8")):
             if request.url.path.startswith("/api/"):
                 return JSONResponse({"ok": False, "error": "invalid token"}, status_code=401)
             return RedirectResponse("/login", status_code=303)
+    elif not TOKEN and not request.url.path.startswith(OPEN_PATHS) and not _from_this_computer(request):
+        protect, password = _network()
+        if protect and not _lan_password_ok(_supplied(request), password):
+            if request.url.path.startswith("/api/"):
+                return JSONResponse({"ok": False, "error": "invalid token"}, status_code=401)
+            return _to_login(request)
     return await call_next(request)
 
 
+def _host_port(scheme: str, netloc: str) -> tuple[str, int] | None:
+    try:
+        u = urlsplit(f"{scheme}://{netloc}")
+        return (u.hostname or "").lower(), u.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
+
+
+def _same_origin(url: str, host: str) -> bool:
+    """True if url (an Origin or Referer header) is this server, as the browser addressed it (Host)."""
+    try:
+        u = urlsplit(url)
+    except ValueError:
+        return False
+    if u.scheme not in ("http", "https") or not u.netloc or not host:
+        return False
+    mine = _host_port(u.scheme, host)
+    return mine is not None and _host_port(u.scheme, u.netloc.rsplit("@", 1)[-1]) == mine
+
+
+@app.middleware("http")
+async def same_origin_guard(request: Request, call_next):
+    """No form posts from other web sites (CSRF): a POST, PUT, PATCH or DELETE whose Origin (or else
+    Referer) is another site is refused. Requests with neither header (the phone app, scripts) pass.
+    A page at a name other than this computer's own (see _allowed_host) may only post with the password
+    or the access token: otherwise it could be another web site pointed at this computer (DNS rebinding).
+    A page at any IP address may post (a web site cannot make the browser use an IP address as its name)."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        host = request.headers.get("host", "")
+        cross = (request.headers.get("sec-fetch-site", "").lower() == "cross-site"
+                 or (origin is not None and not _same_origin(origin, host))
+                 or (origin is None and referer is not None and not _same_origin(referer, host)))
+        if not cross and (origin is not None or referer is not None):
+            # a page at a name (not an address) other than this computer's: only with the password or token.
+            # Any IP address is fine here (DNS rebinding always uses the attacker's name), so a device using
+            # another address of this computer (Docker, a second network) can still save its forms.
+            cross = not (_allowed_host(request) or _ip_host(request) or _authenticated(request))
+        if cross:
+            token = i18n.set_language(_language_for(request))    # this runs before the language middleware
+            try:
+                text = tr("Refused: this request came from another web site.")
+            finally:
+                i18n._lang.reset(token)
+            return Response(text, status_code=403, media_type="text/plain; charset=utf-8")
+    return await call_next(request)
+
+
+def _login_form(request: Request, next_url: str, wrong: bool = False):
+    return templates.TemplateResponse(request, "login.html", {"token_mode": bool(TOKEN), "next": _safe_next(next_url),
+                                                              "wrong": wrong}, status_code=401 if wrong else 200)
+
+
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {})
+def login_page(request: Request, next: str = "/"):
+    return _login_form(request, next)
 
 
 @app.post("/login")
-def login(token: str = Form("")):
-    resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie("mcq_token", token, httponly=True, samesite="lax")
+def login(request: Request, token: str = Form(""), next: str = Form("/")):
+    if TOKEN:                                 # as before: the guard sends a wrong token back here
+        resp = RedirectResponse("/", status_code=303)
+        resp.set_cookie("mcq_token", token, httponly=True, samesite="lax")
+        return resp
+    password = _network()[1]
+    if not _lan_password_ok(token, password):
+        return _login_form(request, next, wrong=True)
+    resp = RedirectResponse(_safe_next(next), status_code=303)
+    resp.set_cookie("mcq_token", password, max_age=LAN_COOKIE_AGE, httponly=True, samesite="lax")
+    return resp
+
+
+def _server_address(request: Request) -> str:
+    """The address the phone app connects to: this computer on the network, on the port of this page."""
+    port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    return f"http://{network.lan_ip()}:{port}"
+
+
+def _network_card(request: Request) -> dict:
+    protect, password = _network()
+    card = {"protect": protect, "token_mode": bool(TOKEN), "show": _may_see_password(request), "password": "",
+            "server": _server_address(request)}
+    if card["show"]:
+        card["password"] = password
+    return card
+
+
+@app.get("/settings/network/qr.png")
+def settings_network_qr(request: Request):
+    """The pairing QR code: mcqomr://pair?u=<server address>&t=<password>."""
+    if not _may_see_password(request):
+        raise HTTPException(404)
+    png = network.qr_png(network.pair_url(_server_address(request), _network()[1]))
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/settings/network")
+def settings_network(request: Request, lan_protect: str = Form("")):
+    if not _may_see_password(request):
+        return _back(tr("Only this computer, or a device signed in with the password, can change this."), "network")
+    on = lan_protect in ("1", "on", "yes", "true")
+    made = db.set_lan_protect(on)            # switched on: always a new password
+    if made:
+        resp = _back(tr("Other devices now need the password. It is a new one: type it into the phone app, "
+                        "or scan the QR code."), "network")
+        if not TOKEN and not _from_this_computer(request):      # this device stays signed in
+            resp.set_cookie("mcq_token", db.settings_get()["lan_password"], max_age=LAN_COOKIE_AGE, httponly=True,
+                            samesite="lax")
+        return resp
+    return _back(tr("Other devices now need the password.") if on
+                 else tr("Other devices can now open MCQ-OMR without a password."), "network")
+
+
+@app.post("/settings/network/password")
+def settings_network_password(request: Request):
+    if not _may_see_password(request):
+        return _back(tr("Only this computer, or a device signed in with the password, can change this."), "network")
+    password = network.new_password()
+    db.settings_set(lan_password=password)
+    resp = _back(tr("New password made. Type it into the phone app again, or scan the new QR code."), "network")
+    if not TOKEN and not _from_this_computer(request):      # this device stays signed in
+        resp.set_cookie("mcq_token", password, max_age=LAN_COOKIE_AGE, httponly=True, samesite="lax")
     return resp
 
 
@@ -319,13 +561,66 @@ def index(request: Request, msg: str = ""):
 
 @app.get("/sets/new", response_class=HTMLResponse)
 def set_new(request: Request):
-    return templates.TemplateResponse(request, "set_new.html", {"defaults": db.settings_get()})
+    return templates.TemplateResponse(request, "set_new.html", {"defaults": db.settings_get(),
+                                                                 "course_list": _course_list()})
+
+
+def _exam_class(exam: dict | None) -> str:
+    """The class (course) an exam set is meant for, as stored ("" = none: all students)."""
+    return " ".join(str(((exam or {}).get("meta") or {}).get("course") or "").split())
+
+
+def _set_class(exam: dict, course: str):
+    """Store the class chosen in the form: a course on the list (in its spelling), the class the set
+    already has (also when it was removed from the list since), or none."""
+    k = statsmod.course_key(course)
+    if not k:
+        exam["meta"].pop("course", None)
+        return
+    valid = {statsmod.course_key(c): c for c in _course_list()}
+    if k in valid:
+        exam["meta"]["course"] = valid[k]
+    # anything else (the class the set already has, or a course that is not on the list): left as it was
+
+
+def _course_default(exam: dict, course: str | None, fallback: bool = True) -> str:
+    """The course filter of a page: the one asked for (course= in the address, "" = all students), or
+    with no course= at all the class of the exam set, in the spelling the drop-downs use. A class with no
+    counted sheet in this set yet opens on all students instead (see _class_empty), unless fallback=False."""
+    if course is not None:
+        return course
+    cls = _exam_class(exam)
+    if not cls or (fallback and _class_empty(exam)):
+        return ""
+    return statsmod.course_names(db.students_courses()).get(statsmod.course_key(cls), cls)
+
+
+def _class_empty(exam: dict, scans: list[dict] | None = None) -> str:
+    """The set's class when it has no counted sheet in this set yet ("" otherwise): its pages then show
+    all students, with a note, instead of an empty view."""
+    cls = _exam_class(exam)
+    if not cls:
+        return ""
+    scans = db.list_scans(exam["id"]) if scans is None else scans
+    return cls if statsmod.n_counted(exam, statsmod.filter_by_course(scans, db.students_courses(), cls)) == 0 else ""
+
+
+def _all_topics() -> list[str]:
+    """Every topic used in any exam set, for the suggestions of the question editor."""
+    seen: dict[str, str] = {}
+    for s in db.list_sets():
+        exam = db.get_set(s["id"]) or {}
+        for q in exam.get("questions", []):
+            t = " ".join(str(q.get("topic") or "").split())
+            if t:
+                seen.setdefault(t.casefold(), t)
+    return sorted(seen.values(), key=str.casefold)
 
 
 @app.post("/sets")
 def set_create(title: str = Form(...), module: str = Form(""), semester: str = Form(""),
                lecturer: str = Form(""), institution: str = Form(""), instructions: str = Form(""),
-               id_prefix: str = Form(""), id_digits: int = Form(6)):
+               id_prefix: str = Form(""), id_digits: int = Form(6), course: str = Form("")):
     exam = {
         "id": new_set_id(),
         "meta": {"title": title.strip(), "module": module.strip(), "semester": semester.strip(),
@@ -336,6 +631,7 @@ def set_create(title: str = Form(...), module: str = Form(""), semester: str = F
         "questions": [],
         "versions": [],
     }
+    _set_class(exam, course)
     db.save_set(exam)
     return RedirectResponse(f"/sets/{exam['id']}", status_code=303)
 
@@ -345,26 +641,49 @@ def set_page(request: Request, set_id: str, msg: str = ""):
     exam = _exam_or_404(set_id)
     scans = db.list_scans(set_id) if exam.get("versions") else []
     max_opts = max((len(q["choices"]) for q in exam["questions"]), default=5)
+    courses = db.students_courses()
+    roster = db.students_get()
+    cls = _exam_class(exam)
+    course_opts = statsmod.course_options(scans, courses)
+    course_list = _course_list()
+    class_empty = _class_empty(exam, scans) if scans else ""
+    not_scanned = []
+    if cls and scans:     # the students of the set's class with no counted sheet in this set
+        sat = {s["student_no"] for s in scans if not s["superseded"] and s["student_no"]}
+        not_scanned = sorted((no for no, c in courses.items()
+                              if statsmod.course_key(c) == statsmod.course_key(cls) and no not in sat),
+                             key=lambda no: ((roster.get(no) or "~").casefold(), no))
     return templates.TemplateResponse(request, "set.html", {
         "exam": exam, "scans": scans, "msg": msg,
         "locked": bool(exam.get("versions")),
         "problems": validate_questions(exam["questions"]) if exam["questions"] else [],
         "capacity": L.capacity(max(L.MIN_OPTIONS, min(L.MAX_OPTIONS, max_opts))),
-        "roster": db.students_get(),
+        "roster": roster,
         "emails": db.students_emails(),
-        "course_of": {no: statsmod.course_key(c) for no, c in db.students_courses().items()},
-        "course_opts": statsmod.course_options(scans, db.students_courses()),
+        "course_of": {no: statsmod.course_key(c) for no, c in courses.items()},
+        "course_opts": course_opts,
         "no_course": statsmod.NO_COURSE, "course_key": statsmod.course_key,
         "n_ok": sum(1 for s in scans if s["status"] == "ok" and not s["superseded"]),
         "n_review": sum(1 for s in scans if s["status"] != "ok" and not s["superseded"]),
+        # sheets still to check (status not ok, or a student number that could not be read): never hidden by the
+        # course filter, and the students not scanned yet may be among them
+        "n_pending": sum(1 for s in scans if not s["superseded"] and (s["status"] != "ok" or not statsmod.readable_no(s["student_no"]))),
+        "exam_class": cls, "class_key": statsmod.course_key(cls), "not_scanned": not_scanned,
+        "class_empty": class_empty, "class_select": "" if class_empty else statsmod.course_key(cls),
+        "course_list": course_list, "topics": _all_topics(),
+        # a class that is not among the choices (no sheet of it yet, or removed from the course list since)
+        "class_missing_opt": statsmod.course_key(cls) not in {statsmod.course_key(o["value"]) for o in course_opts
+                                                              if o["value"] != statsmod.NO_COURSE},
+        "class_missing_list": statsmod.course_key(cls) not in {statsmod.course_key(c) for c in course_list},
     })
 
 
 @app.post("/sets/{set_id}/meta")
 def set_meta(set_id: str, title: str = Form(...), module: str = Form(""), semester: str = Form(""),
              lecturer: str = Form(""), institution: str = Form(""), instructions: str = Form(""),
-             id_prefix: str = Form(""), id_digits: int = Form(6)):
+             id_prefix: str = Form(""), id_digits: int = Form(6), course: str = Form("")):
     exam = _exam_or_404(set_id)
+    _set_class(exam, course)     # not printed: it can change also once versions exist
     exam["meta"].update({"title": title.strip(), "module": module.strip(), "semester": semester.strip(),
                          "lecturer": lecturer.strip(), "instructions": instructions.strip(),
                          "institution": [ln.strip() for ln in institution.splitlines() if ln.strip()][:3]})
@@ -385,13 +704,17 @@ def _clean_questions(questions: list) -> list[dict]:
                         for c in q.get("choices", [])],
             "correct": int(q.get("correct", -1)) if str(q.get("correct", "")).lstrip("-").isdigit() else -1,
         })
+        topic = " ".join(str(q.get("topic") or "").split())   # optional, not printed
+        if topic:
+            clean[-1]["topic"] = topic
     return clean
 
 
 @app.post("/sets/{set_id}/questions")
 async def set_questions(set_id: str, request: Request):
-    exam = _exam_or_404(set_id)
+    _exam_or_404(set_id)
     body = await request.json()
+    exam = _exam_or_404(set_id)         # read after the body arrived: a details save meanwhile is kept
     clean = _clean_questions(body.get("questions", []))
     if exam.get("versions"):
         old = exam["questions"]
@@ -405,10 +728,15 @@ async def set_questions(set_id: str, request: Request):
         # a changed correct answer must reach the answer keys of the versions before rescoring
         refresh_answers(clean, exam["versions"])
     db.save_set(exam)
+    out = {"ok": True, "problems": validate_questions(clean), "n": len(clean),
+           "rescored": bool(exam.get("versions"))}
+    # what the page shows from the saved questions, so the editor can update it without a reload
+    max_opts = max((len(q["choices"]) for q in clean), default=5)
+    out["capacity"] = L.capacity(max(L.MIN_OPTIONS, min(L.MAX_OPTIONS, max_opts)))
     if exam.get("versions"):
         _rescore_set(exam)
-    return JSONResponse({"ok": True, "problems": validate_questions(clean), "n": len(clean),
-                         "rescored": bool(exam.get("versions"))})
+        out["scores"] = {str(s["id"]): [s["score"], s["max_score"]] for s in db.list_scans(set_id)}
+    return JSONResponse(out)
 
 
 @app.post("/sets/{set_id}/import")
@@ -544,11 +872,19 @@ def settings_page(request: Request, msg: str = ""):
         "course_counts": {c: sum(1 for k in names.values() if k == statsmod.course_key(c)) for c in courses},
         "custom_logo": (db.DATA_DIR / "logo.png").exists(),
         "bundled_logo": os.path.exists(DEFAULT_LOGO),
+        "network": _network_card(request),
     })
 
 
-def _back(msg: str, anchor: str = "students") -> RedirectResponse:
-    return RedirectResponse("/settings?" + urlencode({"msg": msg}) + "#" + anchor, status_code=303)
+def _back(msg: str, anchor: str = "students", refused: bool = False) -> RedirectResponse:
+    return RedirectResponse("/settings?" + urlencode({"msg": msg}) + ("&error=1" if refused else "") + "#" + anchor,
+                            status_code=303)
+
+
+def _autosave(request: Request) -> bool:
+    """The request comes from a form that saves itself (static/autosave.js); it is told about refused values
+    with error=1 in the redirect, so the value is not shown as saved. Normal form posts are unchanged."""
+    return request.headers.get("x-autosave") == "1"
 
 
 @app.get("/settings/backup")
@@ -623,7 +959,7 @@ async def settings_students_update(request: Request):
             n += 1
     if bad:
         return _back(tr("Saved: %(n)s student(s) changed; not an email address, left as it was: %(numbers)s",
-                        n=n, numbers=", ".join(bad)))
+                        n=n, numbers=", ".join(bad)), refused=_autosave(request))
     return _back(tr("Saved: %(n)s student(s) changed", n=n))
 
 
@@ -650,10 +986,10 @@ def settings_courses_remove(name: str = Form("")):
 
 
 @app.post("/settings/email")
-def settings_email(email_domain: str = Form("")):
+def settings_email(request: Request, email_domain: str = Form("")):
     d = email_domain.strip().lstrip("@").strip()
     if d and (" " in d or "." not in d):
-        return _back(tr("That does not look like an email domain (e.g. student.university.edu)"))
+        return _back(tr("That does not look like an email domain (e.g. student.university.edu)"), refused=_autosave(request))
     db.settings_set(email_domain=d)
     return _back(tr("Email domain saved: student number @%(domain)s", domain=d) if d else tr("Email domain cleared"))
 
@@ -710,12 +1046,13 @@ async def settings_colours(request: Request):
 
 
 @app.post("/settings/logo")
-async def settings_logo(mode: str = Form("default"), file: UploadFile | None = File(None)):
+async def settings_logo(request: Request, mode: str = Form("default"), file: UploadFile | None = File(None)):
     if file is not None and file.filename:
         data = await file.read()
         img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
         if img is None:
-            return RedirectResponse(_with_msg("/settings", tr("The logo file is not an image I can read")), status_code=303)
+            return RedirectResponse(_with_msg("/settings", tr("The logo file is not an image I can read"))
+                                    + ("&error=1" if _autosave(request) else ""), status_code=303)
         cv2.imwrite(str(db.DATA_DIR / "logo.png"), img)
         mode = "custom"
     if mode == "custom" and not (db.DATA_DIR / "logo.png").exists():
@@ -745,8 +1082,9 @@ def _course_scans(set_id: str, course: str):
             statsmod.course_label(course, courses))
 
 
-def _stats_for(set_id: str, course: str = "") -> dict:
+def _stats_for(set_id: str, course: str | None = "") -> dict:
     exam = _exam_or_404(set_id)
+    course = _course_default(exam, course)
     scans, options, label = _course_scans(set_id, course)
     out = statsmod.compute(exam, scans, db.students_get(), _stats_settings())
     if options or course:          # only when courses are in use: otherwise stats.json is as it was
@@ -758,15 +1096,17 @@ def _stats_for(set_id: str, course: str = "") -> dict:
 
 
 @app.get("/sets/{set_id}/stats", response_class=HTMLResponse)
-def stats_page(request: Request, set_id: str, course: str = ""):
+def stats_page(request: Request, set_id: str, course: str | None = None):
     exam = _exam_or_404(set_id)
+    course = _course_default(exam, course)
     _, options, _ = _course_scans(set_id, "")
     return templates.TemplateResponse(request, "stats.html", {"exam": exam, "course": course, "courses": options,
-                                                               "sets": _stats_sets()})
+                                                               "sets": _stats_sets(),
+                                                               "class_empty": "" if course else _class_empty(exam)})
 
 
 @app.get("/sets/{set_id}/stats.json")
-def stats_json(set_id: str, course: str = ""):
+def stats_json(set_id: str, course: str | None = None):
     return JSONResponse(_stats_for(set_id, course))
 
 
@@ -788,9 +1128,10 @@ def stats_latest():
 
 
 @app.get("/sets/{set_id}/class-stats", response_class=HTMLResponse)
-def class_stats_page(request: Request, set_id: str, course: str = ""):
+def class_stats_page(request: Request, set_id: str, course: str | None = None):
     """Statistics for students: the exam as the class did it, with no names, numbers or marks."""
     exam = _exam_or_404(set_id)
+    course = _course_default(exam, course)     # the set's class goes through the same check below
     settings = _stats_settings()
     all_scans = db.list_scans(set_id)
     courses = db.students_courses()
@@ -812,24 +1153,27 @@ def class_stats_page(request: Request, set_id: str, course: str = ""):
     full = statsmod.compute(exam, scans, {}, settings)     # no names passed in at all
     return templates.TemplateResponse(request, "class_stats.html", {
         "exam": exam, "d": statsmod.class_view(exam, full), "course": course,
+        "class_empty": "" if course else _class_empty(exam, all_scans),
         "course_label": statsmod.course_label(course, courses) if course else "",
         "courses": allowed, "sets": _stats_sets()})
 
 
 @app.get("/sets/{set_id}/questions/{qno}", response_class=HTMLResponse)
-def question_page(request: Request, set_id: str, qno: int, course: str = ""):
+def question_page(request: Request, set_id: str, qno: int, course: str | None = None):
     """One question (original numbering): which students picked each answer, with their results."""
     exam = _exam_or_404(set_id)
+    course = _course_default(exam, course)
     if not 1 <= qno <= len(exam.get("questions", [])):
         raise HTTPException(404, "question not found")
     scans, _, label = _course_scans(set_id, course)
     d = statsmod.question_detail(exam, scans, db.students_get(), _stats_settings(), qno - 1)
     return templates.TemplateResponse(request, "question.html", {"exam": exam, "d": d, "course": course,
-                                                                  "course_label": label, "emails": db.students_emails()})
+                                                                  "course_label": label, "emails": db.students_emails(),
+                                                                  "class_empty": "" if course else _class_empty(exam)})
 
 
 @app.get("/progress", response_class=HTMLResponse)
-def progress_page(request: Request, course: str = ""):
+def progress_page(request: Request, course: str | None = None):
     """The same students over several MCQs: who missed which one and how the results moved."""
     picked = request.query_params.getlist("sets")
     submitted = request.query_params.get("picked") == "1"    # the form was sent (maybe with nothing ticked)
@@ -843,12 +1187,16 @@ def progress_page(request: Request, course: str = ""):
     exams = [e for e in (db.get_set(s["id"]) for s in chosen) if e]
     scans_by_set = {e["id"]: db.list_scans(e["id"]) for e in exams}
     courses = db.students_courses()
+    if course is None:      # no course asked for: the class of the MCQs when they all have the same one
+        keys = {statsmod.course_key(_exam_class(e)) for e in exams}
+        course = _course_default(exams[0], None, fallback=False) if len(keys) == 1 and "" not in keys else ""
     d = statsmod.progress(exams, scans_by_set, db.students_get(), courses, course, _stats_settings())
     return templates.TemplateResponse(request, "progress.html", {
         "usable": usable, "picked": [s["id"] for s in chosen], "d": d, "course": course,
         "emails": db.students_emails(),
         "course_list": sorted(statsmod.course_names(courses).values(), key=str.casefold),
         "no_course": statsmod.NO_COURSE,
+        "set_class": {e["id"]: _exam_class(e) for e in exams},
     })
 
 
@@ -908,7 +1256,20 @@ def scan_page(request: Request, scan_id: int):
         "scan": scan, "seq": db.scan_seq(scan), "exam": exam, "sets": sets, "version": version, "opts": opts, "key": key,
         "name": db.students_get().get(scan["student_no"] or "", ""),
         "darkness": raw.get("darkness", []), "id_darkness": raw.get("id_darkness", []),
+        "no_pattern": _student_no_pattern(exam),
     })
+
+
+def _student_no_pattern(exam: dict | None) -> str:
+    """A complete student number of this exam set as a regular expression for the review page, which saves
+    the number as soon as it is complete (and otherwise only when the field is left). "" = not known."""
+    if not exam:
+        return ""
+    prefix = str(exam["settings"].get("id_prefix") or "")
+    digits = int(exam["settings"].get("id_digits") or 0)
+    if not digits:
+        return ""
+    return "^\\s*" + "\\s*".join(re.escape(ch) for ch in prefix) + "(\\s*\\d){" + str(digits) + "}\\s*$"
 
 
 @app.post("/scans/{scan_id}")
@@ -938,6 +1299,18 @@ async def scan_update(request: Request, scan_id: int):
     fields.update(status="ok" if (exam and version and student_no and "?" not in student_no) else "review",
                   flags=flags)
     db.update_scan(scan_id, **fields)
+    if _autosave(request):
+        # the review page saves each correction by itself and shows the new score and status in place
+        new = db.get_scan(scan_id)
+        name = db.students_get().get(new["student_no"] or "", "")
+        return JSONResponse({
+            "score": new["score"], "max_score": new["max_score"], "status": new["status"],
+            "status_label": {"ok": tr("ok"), "review": tr("review"), "failed": tr("failed")}.get(new["status"], new["status"]),
+            "flags": " · ".join(i18n.flag(f) for f in new["flags"]),
+            "label": (tr("Student number (%(name)s)", name=name) if name else tr("Student number")),
+            # another set or version: the answer boxes on the page belong to the old one
+            "reload": set_id != scan["set_id"] or (vno or None) != scan["version"],
+        })
     target = f"/sets/{set_id}#results" if set_id else "/"
     return RedirectResponse(target, status_code=303)
 
@@ -965,9 +1338,15 @@ def sheet_page(request: Request, scan_id: int):
 
 def _student_stats(exam: dict, scan: dict, st: dict) -> dict:
     """The individual statistics of one scan (student's page and PDF report)."""
+    courses = db.students_courses()
     history = statsmod.student_history(db.list_sets(), scan.get("student_no") or "", db.list_scans, db.get_set,
-                                       exam["id"])
-    return statsmod.student_detail(exam, db.list_scans(exam["id"]), db.students_get(), st, scan, history)
+                                       exam["id"], courses)
+    # an exam set with a class: a student of the class is compared with the class only, anybody else with all
+    scans, scope = statsmod.class_scans(exam, db.list_scans(exam["id"]), scan.get("student_no"), courses)
+    ind = statsmod.student_detail(exam, scans, db.students_get(), st, scan, history)
+    if scope:
+        ind.update(class_scope=scope, exam_class=_exam_class(exam))
+    return ind
 
 
 def _sheet_bundle(scan_id: int):

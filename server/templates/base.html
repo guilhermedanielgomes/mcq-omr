@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}MCQ-OMR{% endblock %}</title>
-<link rel="stylesheet" href="/static/style.css?v=5">
+<link rel="stylesheet" href="/static/style.css?v=7">
 <script src="/i18n.js?lang={{ current_lang() }}&amp;v=1"></script>
 </head>
 <body>
@@ -23,7 +23,9 @@
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<script src="/static/copy.js?v=3"></script>
+<script src="/static/copy.js?v=4"></script>
+<script src="/static/autosave.js?v=3"></script>
+<script src="/static/sortable.js?v=1"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

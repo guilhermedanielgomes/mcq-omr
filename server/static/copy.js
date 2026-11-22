@@ -2,7 +2,8 @@ var t = window.t || function (s, v) { return v ? s.replace(/\{(\w+)\}/g, functio
 /* "Copy emails" buttons. A button either carries the addresses itself
      <button class="copyemails" data-emails="a@x.ie; b@x.ie" data-missing="2">
    or collects them from the visible rows of a table
-     <button class="copyemails" data-from="#tableid">   (rows with data-email="..."; "" = no email)
+     <button class="copyemails" data-from="#tableid">   (rows with data-email="..."; "" = no email;
+                                                         rows with data-copyskip="1" are left out)
    The addresses are copied separated by "; " (Outlook's separator; most mail programs split on it). */
 (function () {
   const SEP = "; ";
@@ -46,7 +47,8 @@ var t = window.t || function (s, v) { return v ? s.replace(/\{(\w+)\}/g, functio
     e.preventDefault();
     if (btn.dataset.from) {
       const rows = [...document.querySelectorAll(btn.dataset.from + " [data-email]")]
-        .filter(r => r.offsetParent !== null);            // visible rows only (filters, sorting)
+        // visible rows only (filters, sorting); data-copyskip="1": shown but not one of the students chosen
+        .filter(r => r.offsetParent !== null && r.dataset.copyskip !== "1");
       // "without email" counts students, not rows (a student scanned twice, unreadable numbers once each)
       const noEmail = new Set(rows.filter(r => !r.dataset.email).map((r, i) => r.dataset.student || "row" + i));
       window.copyEmails(rows.map(r => r.dataset.email), noEmail.size, btn);

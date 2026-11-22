@@ -3,7 +3,8 @@ and the uploaded logo) in one .zip file, and restoring such a file, on this or a
 
 A backup holds:
     manifest.json   what it is, when it was made, how many of everything
-    mcq.sqlite3     the database (a consistent copy, even while the server is in use)
+    mcq.sqlite3     the database (a consistent copy, even while the server is in use), without this
+                    computer's network protection and password (Settings > Network)
     logo.png        the uploaded header image, if there is one
     scans/...       the photos and the "as read" images
 
@@ -82,6 +83,11 @@ def create(dest: Path | str) -> dict:
         dst = sqlite3.connect(snap)
         try:
             src.backup(dst)                             # consistent copy even with the server running
+            # the network protection and its password belong to this computer: never in a backup
+            # (a restore keeps this computer's own); VACUUM so no trace is left in the file's free space
+            dst.execute("DELETE FROM settings WHERE key IN (%s)" % ",".join("?" * len(db.NETWORK_KEYS)), db.NETWORK_KEYS)
+            dst.commit()
+            dst.execute("VACUUM")
         finally:
             dst.close()
             src.close()
@@ -242,6 +248,12 @@ def _restore(path: Path) -> dict:
         (work / "scans").mkdir(exist_ok=True)
         _check_db(work / DB_NAME)                       # also upgrades the copy to the current columns
 
+        # the network protection belongs to this computer, not to the data: it is kept as it is, so a
+        # restored backup can never switch protection off or replace the phone's password
+        with db.connect() as c:
+            network = c.execute("SELECT key, value FROM settings WHERE key IN ('lan_protect', 'lan_password')").fetchall()
+            network = [(r["key"], r["value"]) for r in network]
+
         # 2. keep the current data, in case this was the wrong file
         safety_dir = data / SAFETY_DIR
         safety = safety_dir / f"before-restore-{stamp}.zip"
@@ -283,6 +295,8 @@ def _restore(path: Path) -> dict:
             shutil.rmtree(new_photos, ignore_errors=True)
             raise BackupError(tr("The database could not be replaced. Nothing was changed.")) from None
         shutil.rmtree(old_scans, ignore_errors=True)
+        with db.connect() as c:
+            c.executemany("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", network)
         db.init()                             # nothing left to add (the copy was upgraded), kept for safety
         logo = data / LOGO_NAME
         if (work / LOGO_NAME).exists():

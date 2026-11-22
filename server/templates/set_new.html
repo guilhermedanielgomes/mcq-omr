@@ -10,6 +10,13 @@
     <div><label>{{ _("Lecturer") }}</label><input type="text" name="lecturer" value="{{ defaults.default_lecturer }}"></div>
     <div><label>{{ _("Student number prefix (printed, not filled by the student)") }}</label><input type="text" name="id_prefix" value="{{ defaults.default_id_prefix }}"></div>
     <div><label>{{ _("Digits the student fills (1–8)") }}</label><input type="number" name="id_digits" value="{{ defaults.default_id_digits }}" min="1" max="8"></div>
+    <div><label>{{ _("Class") }}</label>
+      {% if course_list %}<select name="course">
+        <option value="">{{ _("No class (all students)") }}</option>
+        {% for c in course_list %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+      <p class="hint" style="margin:4px 0 0">{{ _("Optional. The results and statistics of this set then open with the students of this class only. It is not printed.") }}</p>
+      {% else %}<p class="hint" style="margin:4px 0 0">{{ _("Optional: an exam set can be meant for one class only, once the courses are listed in Settings.") }} <a href="/settings#courses">{{ _("Go to Settings") }}</a></p>{% endif %}</div>
   </div>
   <label style="margin-top:10px">{{ _("Institution header (up to 3 lines)") }}</label>
   <textarea name="institution">{{ defaults.default_institution }}</textarea>

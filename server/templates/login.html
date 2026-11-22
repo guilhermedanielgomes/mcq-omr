@@ -1,10 +1,24 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Sign in") }} · MCQ-OMR{% endblock %}
 {% block content %}
+{% if token_mode %}
 <h1>{{ _("Access token") }}</h1>
 <form class="card" method="post" action="/login" style="max-width:420px">
   <label>{{ _("This server was started with an access token (MCQ_TOKEN). Enter it to continue.") }}</label>
   <input type="text" name="token" autocomplete="off">
+  {% if wrong %}<p class="bad-text">{{ _("That is not the right password. Try again.") }}</p>{% endif %}
+  {% if next != "/" %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
   <div style="margin-top:10px"><button type="submit">{{ _("Continue") }}</button></div>
 </form>
+{% else %}
+<h1>{{ _("Password") }}</h1>
+<form class="card" method="post" action="/login" style="max-width:420px">
+  <label for="token">{{ _("MCQ-OMR asks for a password when it is opened from another device. Enter it to continue.") }}</label>
+  <input type="text" name="token" id="token" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+  {% if wrong %}<p class="bad-text">{{ _("That is not the right password. Try again.") }}</p>{% endif %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <p class="hint">{{ _("The password is in Settings, under Network, on the computer that runs MCQ-OMR, and in its MCQ-OMR window. This device stays signed in.") }}</p>
+  <div style="margin-top:10px"><button type="submit">{{ _("Continue") }}</button></div>
+</form>
+{% endif %}
 {% endblock %}

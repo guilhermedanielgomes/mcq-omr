@@ -42,7 +42,13 @@
 </div>
 
 <div id="busy" class="hint" style="display:none">{{ _("Reading…") }}</div>
-<div class="row" style="justify-content:space-between;margin-top:8px"><h2 style="margin:0">{{ _("Results") }} <span id="count" class="muted small"></span></h2></div>
+<div class="row" style="justify-content:space-between;margin-top:8px"><h2 style="margin:0">{{ _("Results") }} <span id="count" class="muted small"></span></h2>
+  <div class="row small" id="logsort" data-sortlist="#log" data-sort-default="order:desc" style="display:none;gap:6px">{{ _("Sort by:") }}
+    <a href="#" data-sort-by="order" data-sort-first="desc">{{ _("order read") }}</a> ·
+    <a href="#" data-sort-by="student">{{ _("student number") }}</a> ·
+    <a href="#" data-sort-by="name">{{ _("name") }}</a> ·
+    <a href="#" data-sort-by="score" data-sort-first="desc">{{ _("score") }}</a> ·
+    <a href="#" data-sort-by="status">{{ _("status") }}</a></div></div>
 <div id="log"></div>
 {% endblock %}
 {% block scripts %}
@@ -57,8 +63,15 @@
 
   function card(j, label) {
     n++; count.textContent = `(${n})`;
+    if (n > 1) document.getElementById("logsort").style.display = "";
     const d = document.createElement("div");
     d.className = "card";
+    // what the Sort by links use (static/sortable.js keeps the order chosen as cards arrive)
+    d.setAttribute("data-sort-order", n);
+    d.setAttribute("data-sort-student", j.student_no || "");
+    d.setAttribute("data-sort-name", j.name || "");
+    d.setAttribute("data-sort-score", j.score != null && j.max_score ? j.score / j.max_score : "");
+    d.setAttribute("data-sort-status", STATUS[j.status] || j.status || "");
     const score = j.score != null ? `<b style="font-size:22px">${j.score} / ${j.max_score}</b>` : "<b>" + t("not scored") + "</b>";
     d.innerHTML = `<div class="row" style="justify-content:space-between"><div><span class="tag ${esc(j.status)}">${esc(STATUS[j.status] || j.status)}</span>
       <b style="font-size:20px;margin-left:8px">${esc(j.student_no || "?")}</b> ${j.name ? `<span>${esc(j.name)}</span>` : ""} <span class="muted">${t("version {v}", { v: esc(j.version ?? "?") })}</span>

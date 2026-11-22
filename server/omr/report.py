@@ -75,6 +75,12 @@ def _individual(ind: dict, box_w: float) -> list:
     if not ind["counted"]:
         out.append(Paragraph(pt(tr("This scan is not the one that counts for this student (or is not scored yet): it is "
                                    "compared with the class, but is not part of the class figures.")), ST_WARN))
+    if ind.get("class_scope") == "out":       # only for an exam set with a class
+        out.append(Paragraph(pt(tr("This student is not in the class of this exam (%(course)s), so the comparison is "
+                                   "with everyone who sat it.", course=ind["exam_class"])), ST_SMALL))
+    elif ind.get("class_scope") == "in":
+        out.append(Paragraph(pt(tr("The class figures are for the class %(course)s only.", course=ind["exam_class"])),
+                             ST_SMALL))
     if ind["n_ranked"] > 1:
         if ind["n_equal"]:
             place = pt(tr("%(rank)s of %(n)s (shared with %(equal)s)", rank=ind["rank"], n=ind["n_ranked"],
@@ -129,6 +135,28 @@ def _individual(ind: dict, box_w: float) -> list:
     else:
         out.append(Paragraph(pt(tr("The comparison by question difficulty needs 5 or more scored sheets of this exam "
                                    "(%(n)s so far).", n=ind["n_class"])), ST_SMALL))
+    if ind.get("topics"):          # only when the questions have topics
+        out.append(Spacer(0, 2 * MM))
+        head = [N_("By topic"), N_("Right")] + ([N_("Class")] if ind["difficulty_ok"] else []) + [""]
+        rows = [[Paragraph(f"<b>{pt(tr(h))}</b>" if h else "", ST_CELL) for h in head]]
+        for x in ind["topics"]:
+            name = escape(x["topic"]) if x["topic"] is not None else "<i>" + pt(tr("No topic")) + "</i>"
+            row = [Paragraph(name, ST_CELL), Paragraph(f"{x['right']} / {x['n']} ({_num(x['percent'])}%)", ST_CELL)]
+            if ind["difficulty_ok"]:
+                row.append(Paragraph(f"{_num(x['class_pct'])}%", ST_CELL))
+            row.append(Paragraph("<b>" + pt(tr("Worth revising")) + "</b>", ST_WARN) if x["below"] else "")
+            rows.append(row)
+        widths = [70 * MM, 34 * MM] + ([22 * MM] if ind["difficulty_ok"] else []) + [34 * MM]
+        t = Table(rows, colWidths=widths, hAlign="LEFT")
+        t.setStyle(TableStyle(grid))
+        out.append(t)
+        if ind["difficulty_ok"]:
+            out.append(Paragraph(pt(tr("Class = the share of right answers of the whole class on that topic. \"Worth revising\" "
+                                       "marks a topic at least %(n)s points under the class.", n=_num(ind["topic_below"]))),
+                                 ST_SMALL))
+        else:
+            out.append(Paragraph(pt(tr("The class figure for each topic appears once %(min)s or more sheets of this exam "
+                                       "are scored (%(n)s so far).", min=5, n=ind["n_class"])), ST_SMALL))
     if len(ind["history"]) > 1:
         out.append(Spacer(0, 2 * MM))
         cur = next((h for h in ind["history"] if h.get("set_id") == ind.get("set_id")), None)

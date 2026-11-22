@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_copy.html" import copy_btn %}
 {% block title %}{{ exam.meta.title }} · MCQ-OMR{% endblock %}
 {% block content %}
 <div class="row" style="justify-content:space-between">
@@ -45,28 +46,31 @@
     </div>
   </div>
   {% if scans %}
-  {% if course_opts or emails %}
+  {% if course_opts or emails or exam_class %}
   <div class="row small" style="gap:10px;margin:8px 0">
-    {% if course_opts %}<label class="inline">{{ _("Course") }}
+    {% if course_opts or exam_class %}<label class="inline">{{ _("Course") }}
       <select id="resultscourse" title="{{ _("show the results of one course only") }}">
         <option value="">{{ _("All students") }}</option>
-        {% for c in course_opts %}<option value="{{ '' if c.value == no_course else course_key(c.value) }}" data-none="{{ 1 if c.value == no_course else 0 }}">{{ c.label }} ({{ c.n }})</option>{% endfor %}
+        {% for c in course_opts %}<option value="{{ '' if c.value == no_course else course_key(c.value) }}" data-none="{{ 1 if c.value == no_course else 0 }}"{% if class_select and c.value != no_course and course_key(c.value) == class_select %} selected{% endif %}>{{ c.label }} ({{ c.n }})</option>{% endfor %}{% if class_key and class_missing_opt %}
+        <option value="{{ class_key }}" data-none="0"{% if class_select %} selected{% endif %}>{{ exam_class }} (0)</option>{% endif %}
       </select></label>{% endif %}
     {% if emails %}<button type="button" class="small secondary copyemails" data-from="#resultstable tbody" title="{{ _("copy the email addresses of the students listed (the course chosen), separated by ;") }}">{{ _("Copy emails of these students") }}</button>{% endif %}
   </div>
-  {% endif %}
-  <table id="resultstable">
-    <thead><tr><th>#</th><th>{{ _("Student") }}</th><th><a href="#" class="sortby" data-sort="name" title="{{ _("sort alphabetically by name") }}">{{ _("Name") }}</a></th><th>{{ _("Version") }}</th><th><a href="#" class="sortby" data-sort="score" title="{{ _("sort from best to worst") }}">{{ _("Score") }}</a></th><th>{{ _("Status") }}</th><th>{{ _("Flags") }}</th><th>{{ _("Scanned") }}</th><th></th></tr></thead>
+  {% endif %}{% if class_empty %}
+  <p class="note">{{ _("No sheet of the class %(course)s is counted yet, so all students are shown.", course=class_empty) }}</p>{% endif %}
+  <table id="resultstable" data-sortable data-sort-default="score" data-sort-remember="mcq_results_sort">
+    <thead><tr><th>#</th><th data-sort-id="student">{{ _("Student") }}</th><th data-sort-id="name" data-sort-then="student" title="{{ _("sort alphabetically by name") }}">{{ _("Name") }}</th><th>{{ _("Version") }}</th><th data-sort-id="score" data-sort-first="desc" data-sort-then="name student" title="{{ _("sort from best to worst") }}">{{ _("Score") }}</th><th>{{ _("Status") }}</th><th>{{ _("Flags") }}</th><th>{{ _("Scanned") }}</th><th></th></tr></thead>
     <tbody>
     {% for s in scans %}
     <tr class="{{ 'superseded' if s.superseded }}" data-id="{{ s.id }}" data-name="{{ roster.get(s.student_no, '') }}" data-student="{{ s.student_no or '' }}"
         data-pct="{{ (s.score / s.max_score) if (s.score is not none and s.max_score) else -1 }}" data-old="{{ 1 if s.superseded else 0 }}"
-        data-email="{{ emails.get(s.student_no or '', '') }}" data-course="{{ course_of.get(s.student_no or '', '') }}">
+        data-email="{{ emails.get(s.student_no or '', '') }}" data-course="{{ course_of.get(s.student_no or '', '') }}"{% if s.status != "ok" or not s.student_no or "?" in s.student_no %} data-review="1"{% endif %}
+        data-sort-group="{{ 2 if s.superseded else (0 if (s.score is not none and s.max_score) else 1) }}">
       <td>{{ s.seq }}</td>
       <td>{% if s.score is not none %}<a href="/scans/{{ s.id }}/sheet" title="{{ _("the student's page: sheet with right and wrong marked") }}"><code>{{ s.student_no or "?" }}</code></a>{% else %}<code>{{ s.student_no or "?" }}</code>{% endif %}</td>
       <td>{% if s.score is not none %}<a href="/scans/{{ s.id }}/sheet">{{ roster.get(s.student_no, "") }}</a>{% else %}{{ roster.get(s.student_no, "") }}{% endif %}</td>
       <td>{{ s.version if s.version else "?" }}</td>
-      <td>{% if s.score is not none %}<b>{{ s.score }}</b> / {{ s.max_score }}{% else %}–{% endif %}</td>
+      <td data-sort-value="{{ (s.score / s.max_score) if (s.score is not none and s.max_score) else '' }}">{% if s.score is not none %}<b>{{ s.score }}</b> / {{ s.max_score }}{% else %}–{% endif %}</td>
       <td><span class="tag {{ s.status }}">{{ {"ok": _("ok"), "review": _("review"), "failed": _("failed")}.get(s.status, s.status) }}</span></td>
       <td class="small">{{ s.flags|map("flag")|join("; ") }}</td>
       <td class="small muted">{{ s.created }}</td>
@@ -76,7 +80,15 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="hint">{{ _("Click <b>Score</b> for best to worst (the default) or <b>Name</b> for alphabetical order; this browser remembers the last choice.") }} {{ _("Sheets still to score come after, older scans of a student who was scanned again come last.") }}</p>
+  <p class="hint">{{ _("Click a column heading to sort by it, and click it again to reverse the order. Best to worst by score is the default; this browser remembers the last choice.") }} {{ _("Sheets still to score come after, older scans of a student who was scanned again come last.") }}</p>{% if exam_class %}
+  <h3 id="notscanned">{{ _("Not scanned yet") }} <span class="muted small">{{ _("students of the class %(course)s with no sheet in this set", course=exam_class) }}</span></h3>
+  {% if not_scanned %}{% if n_pending %}
+  <p class="small muted">{{ ngettext("%(n)s sheet of this set still needs a review or has a student number that could not be read: some of these students may be among them.", "%(n)s sheets of this set still need a review or have a student number that could not be read: some of these students may be among them.", n_pending) }}</p>{% endif %}
+  <p class="small">{% for no in not_scanned %}<code>{{ no }}</code>{% if roster.get(no) %} {{ roster[no] }}{% endif %}{{ ", " if not loop.last }}{% endfor %}</p>
+  {% if emails %}<p>{{ copy_btn(not_scanned, emails) }}</p>{% endif %}
+  {% else %}
+  <p class="muted small">{{ _("Every student of this class on the student list has a sheet in this set.") }}</p>
+  {% endif %}{% endif %}
   {% else %}
   <p class="muted">{{ _("No scans yet. Point the phone app to this computer and photograph the sheets; each one appears here as soon as it is read.") }}</p>
   {% endif %}
@@ -85,7 +97,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">{{ _("Details") }}</h2>
-  <form method="post" action="/sets/{{ exam.id }}/meta">
+  <form method="post" action="/sets/{{ exam.id }}/meta" data-autosave data-autosave-validate>
     <div class="grid2">
       <div><label>{{ _("Exam title") }}</label><input type="text" name="title" value="{{ exam.meta.title }}" required></div>
       <div><label>{{ _("Module") }}</label><input type="text" name="module" value="{{ exam.meta.module }}"></div>
@@ -93,12 +105,20 @@
       <div><label>{{ _("Lecturer") }}</label><input type="text" name="lecturer" value="{{ exam.meta.lecturer }}"></div>
       <div><label>{{ _("Student number prefix") }}</label><input type="text" name="id_prefix" value="{{ exam.settings.id_prefix }}" {% if locked %}readonly{% endif %}></div>
       <div><label>{{ _("Digits filled by the student") }}</label><input type="number" name="id_digits" value="{{ exam.settings.id_digits }}" min="1" max="8" {% if locked %}readonly{% endif %}></div>
+      {% if course_list or exam_class %}<div><label>{{ _("Class") }}</label>
+        <select name="course">
+          <option value="">{{ _("No class (all students)") }}</option>
+          {% for c in course_list %}<option value="{{ c }}"{% if course_key(c) == class_key %} selected{% endif %}>{{ c }}</option>{% endfor %}{% if class_key and class_missing_list %}
+          <option value="{{ exam_class }}" selected>{{ exam_class }}</option>{% endif %}
+        </select>
+        <p class="hint" style="margin:4px 0 0">{{ _("Optional. The results and statistics of this set then open with the students of this class only. It is not printed.") }}</p>
+        </div>{% endif %}
     </div>
     <label style="margin-top:10px">{{ _("Institution header (up to 3 lines)") }}</label>
     <textarea name="institution">{{ exam.meta.institution|join("\n") }}</textarea>
     <label style="margin-top:10px">{{ _("Instructions on the question paper") }}</label>
     <textarea name="instructions">{{ exam.meta.instructions }}</textarea>
-    <div style="margin-top:10px"><button type="submit" class="secondary">{{ _("Save details") }}</button></div>
+    <div style="margin-top:10px"><button type="submit" class="secondary" data-autosave-hide>{{ _("Save details") }}</button></div>
   </form>
 </div>
 
@@ -115,6 +135,7 @@
     {{ _("Up to 6 choices per question. ``` fences in a text become a monospace code block on the paper.") }}
     {{ _("Capacity of one answer sheet with the current choice count: <b>%(n)s</b> questions.", n=capacity) }}</p>
   <div id="problems" class="problems">{% for p in problems %}<div>{{ p }}</div>{% endfor %}</div>
+  <label class="inline small"><input type="checkbox" id="usetopics"> {{ _("Use topics") }} <span class="muted">{{ _("(a topic per question, for the statistics by topic; not printed)") }}</span></label>
   <div id="questions"></div>
   <div id="savestatus" class="hint"></div>
 </div>
@@ -136,7 +157,8 @@ D) None of the above [fixed]
 A) TCP
 *B) UDP
 C) HTTP</pre>
-        <p class="hint">{{ _("Blank line between questions. <code>*</code> marks the correct choice (or a Moodle/Aiken <code>ANSWER: B</code> line). <code>[fixed]</code> keeps a choice last.") }}</p>
+        <p class="hint">{{ _("Blank line between questions. <code>*</code> marks the correct choice (or a Moodle/Aiken <code>ANSWER: B</code> line). <code>[fixed]</code> keeps a choice last.") }}
+          {{ _("An optional line such as <code>TOPIC: subnetting</code>, with TOPIC: in capitals at the start of the line, gives a question a topic. For a line of question text that starts with TOPIC:, write <code>&#92;TOPIC:</code> instead.") }}</p>
       </div>
       <div>
         <textarea name="text" style="min-height:230px" placeholder="{{ _("Paste here…") }}"></textarea>
@@ -167,48 +189,27 @@ C) HTTP</pre>
 <script>
   window.EXAM = {{ exam|tojson }};
   window.LOCKED = {{ 'true' if locked else 'false' }};
-</script>
-<script src="/static/editor.js?v=3"></script>
+{% if topics %}  window.TOPICS = {{ topics|tojson }};
+{% endif %}</script>
+<script src="/static/editor.js?v=8"></script>
 <script>
 (function () {
   // results: one course only (the rows of the others are hidden; Copy emails takes the visible rows)
   const cs = document.getElementById("resultscourse");
-  if (cs) cs.addEventListener("change", () => {
+  const filter = () => {
     const opt = cs.options[cs.selectedIndex], none = opt.dataset.none === "1";
     document.querySelectorAll("#resultstable tbody tr").forEach(tr => {
-      tr.style.display = (!cs.value && !none) || tr.dataset.course === cs.value && !(none && tr.dataset.course) ? "" : "none";
+      const match = (!cs.value && !none) || tr.dataset.course === cs.value && !(none && tr.dataset.course);
+      // a sheet still to check (status not ok, unreadable number) is never hidden; Copy emails leaves it out
+      // when it is shown only for that
+      tr.style.display = match || tr.dataset.review === "1" ? "" : "none";
+      tr.dataset.copyskip = match ? "0" : "1";
     });
-  });
-})();
-(function () {
-  // results: best to worst by default, alphabetical by name on request (the order is only visual)
-  const table = document.getElementById("resultstable");
-  if (!table) return;
-  const body = table.tBodies[0];
-  const rows = Array.from(body.rows);
-  const coll = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
-  const group = r => r.dataset.old === "1" ? 2 : (Number(r.dataset.pct) < 0 ? 1 : 0);
-  const byId = (a, b) => Number(a.dataset.id) - Number(b.dataset.id);
-  const byName = (a, b) => {
-    const na = a.dataset.name, nb = b.dataset.name;
-    if (!na !== !nb) return na ? -1 : 1;                 // students without a name after the named ones
-    return coll.compare(na, nb) || coll.compare(a.dataset.student, b.dataset.student);
   };
-  const SORTS = {
-    score: (a, b) => group(a) - group(b) || Number(b.dataset.pct) - Number(a.dataset.pct) || byName(a, b) || byId(a, b),
-    name: (a, b) => group(a) - group(b) || byName(a, b) || byId(a, b),
-  };
-  function apply(key) {
-    rows.slice().sort(SORTS[key]).forEach(r => body.append(r));
-    table.querySelectorAll(".sortby").forEach(a => {
-      a.textContent = a.textContent.replace(/ [▼▲]$/, "") + (a.dataset.sort === key ? (key === "score" ? " ▼" : " ▲") : "");
-    });
-    try { localStorage.setItem("mcq_results_sort", key); } catch (e) {}
-  }
-  table.querySelectorAll(".sortby").forEach(a => a.addEventListener("click", e => { e.preventDefault(); apply(a.dataset.sort); }));
-  let key = "score";
-  try { const k = localStorage.getItem("mcq_results_sort"); if (SORTS[k]) key = k; } catch (e) {}
-  apply(key);
+  if (cs) cs.addEventListener("change", filter);
+  if (cs && cs.value) filter();        // the set has a class: its students only, at first
 })();
+// results: sorted by static/sortable.js (best to worst by default; sheets still to score after, older scans
+// of a student scanned again last, whatever the column: data-sort-group on the rows)
 </script>
 {% endblock %}

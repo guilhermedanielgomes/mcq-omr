@@ -25,6 +25,13 @@ code block inside the text is kept as code); a choice line starts with an
 optional * (correct), a letter A-F, then ) or . and the text; "[fixed]" or
 "[keep last]" at the end of a choice keeps it in place when choices are
 shuffled.  A leading "1." / "Q1:" / "1)" on the question is removed.
+An optional line "TOPIC: <name>" anywhere in the block labels the question with
+a topic; it is written after the choices on export. Only exactly "TOPIC:", in
+capital letters at the very start of a line and outside a ``` code block, counts:
+"Topic: sorting. Which..." is question text. To start a line of question (or
+choice) text with "TOPIC:", write a backslash before it: "\\TOPIC: ..." imports as
+the text "TOPIC: ..." (one leading backslash is removed from any line that starts
+with backslashes and then TOPIC:). The export writes such lines that way.
 """
 from __future__ import annotations
 
@@ -34,6 +41,8 @@ CHOICE_RE = re.compile(r"^\s*(\*?)\s*([A-Fa-f])\s*[\)\.:]\s*(.*)$")
 ANSWER_RE = re.compile(r"^\s*ANSWER\s*:\s*([A-Fa-f])\s*$", re.IGNORECASE)
 QNUM_RE = re.compile(r"^\s*(?:Q\s*)?\d{1,3}\s*[\.\):]\s*", re.IGNORECASE)
 FIXED_RE = re.compile(r"\s*\[(fixed|keep last|keep)\]\s*$", re.IGNORECASE)
+TOPIC_RE = re.compile(r"^TOPIC:(.*)$")                 # exactly this, at the very start of the line
+ESCAPED_TOPIC_RE = re.compile(r"^\\+TOPIC:")             # \TOPIC: = a text line starting with TOPIC:
 
 
 def _split_blocks(text: str) -> list[list[str]]:
@@ -55,10 +64,16 @@ def _split_blocks(text: str) -> list[list[str]]:
 def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
     questions, errors = [], []
     for n, block in enumerate(_split_blocks(text), start=1):
-        q_lines, choices, correct, in_code = [], [], None, False
+        q_lines, choices, correct, in_code, topic = [], [], None, False, ""
         for line in block:
             if line.strip().startswith("```"):
                 in_code = not in_code
+            m_topic = TOPIC_RE.match(line) if not in_code else None
+            if m_topic:
+                topic = " ".join(m_topic.group(1).split())
+                continue
+            if not in_code and ESCAPED_TOPIC_RE.match(line):
+                line = line[1:]                  # \TOPIC: ... is text that starts with TOPIC:
             m_ans = ANSWER_RE.match(line)
             if m_ans and not in_code:
                 letter = m_ans.group(1).upper()
@@ -90,7 +105,10 @@ def parse_bulk(text: str) -> tuple[list[dict], list[str]]:
         if correct is None or correct >= len(choices):
             errors.append(f"Block {n} ('{qtext[:40]}'): no correct choice (mark it with * or ANSWER: X).")
             continue
-        questions.append({"text": qtext, "choices": choices, "correct": correct})
+        q = {"text": qtext, "choices": choices, "correct": correct}
+        if topic:
+            q["topic"] = topic
+        questions.append(q)
     return questions, errors
 
 
@@ -103,5 +121,21 @@ def questions_to_text(questions: list[dict]) -> str:
             star = "*" if j == q["correct"] else ""
             fixed = " [fixed]" if c.get("fixed") else ""
             lines.append(f"{star}{chr(65 + j)}) {c['text']}{fixed}")
+        lines = _escape_topic_lines("\n".join(lines).split("\n"))
+        if str(q.get("topic") or "").strip():
+            lines.append(f"TOPIC: {' '.join(str(q['topic']).split())}")
         out.append("\n".join(lines))
     return "\n\n".join(out)
+
+
+def _escape_topic_lines(lines: list[str]) -> list[str]:
+    """Text lines that parse_bulk would take for a TOPIC line (or for an escaped one) get one more
+    backslash, outside code blocks, exactly as parse_bulk tells code blocks apart."""
+    out, in_code = [], False
+    for line in lines:
+        if line.strip().startswith("```"):
+            in_code = not in_code
+        if not in_code and (TOPIC_RE.match(line) or ESCAPED_TOPIC_RE.match(line)):
+            line = "\\" + line
+        out.append(line)
+    return out

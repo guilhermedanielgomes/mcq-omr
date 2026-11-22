@@ -7,12 +7,13 @@
 </div>
 <div class="card">
 {% if sets %}
-<table>
-  <tr><th>{{ _("Title") }}</th><th>{{ _("Module") }}</th><th>{{ _("Set id") }}</th><th>{{ _("Questions") }}</th><th>{{ _("Versions") }}</th><th>{{ _("Scans") }}</th><th>{{ _("Created") }}</th></tr>
+{% set any_class = sets|selectattr("course")|list -%}
+<table data-sortable>
+  <tr><th>{{ _("Title") }}</th><th>{{ _("Module") }}</th>{% if any_class %}<th>{{ _("Class") }}</th>{% endif %}<th>{{ _("Set id") }}</th><th>{{ _("Questions") }}</th><th>{{ _("Versions") }}</th><th>{{ _("Scans") }}</th><th>{{ _("Created") }}</th></tr>
   {% for s in sets %}
   <tr>
     <td><a href="/sets/{{ s.id }}">{{ s.title or _("(untitled)") }}</a></td>
-    <td>{{ s.module }}</td>
+    <td>{{ s.module }}</td>{% if any_class %}<td class="small">{{ s.course }}</td>{% endif %}
     <td><code>{{ s.id }}</code></td>
     <td>{{ s.n_questions }}</td>
     <td>{{ s.n_versions }}</td>

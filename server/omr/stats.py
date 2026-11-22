@@ -202,6 +202,55 @@ def course_label(course: str, courses: dict[str, str]) -> str:
     return course_names(courses).get(course_key(course), course)
 
 
+# ---------------------------------------------------------------------------
+# topics (optional: a label per question; nothing changes while no question has one)
+# ---------------------------------------------------------------------------
+TOPIC_BELOW_POINTS = 20.0   # a student this many points or more under the class on a topic: "worth revising"
+
+
+def question_topic(q: dict) -> str:
+    return " ".join(str(q.get("topic") or "").split())
+
+
+def topic_groups(questions: list[dict]) -> list[tuple[str | None, list[int]]]:
+    """[(topic, [original question indices])], topics in alphabetical order (capitals and spaces do not
+    count: the first spelling is shown), then (None, ...) for the questions without a topic. Empty when
+    no question has a topic."""
+    names: dict[str, str] = {}
+    groups: dict[str, list[int]] = {}
+    none = []
+    for qi, q in enumerate(questions):
+        t = question_topic(q)
+        if not t:
+            none.append(qi)
+            continue
+        k = t.casefold()
+        names.setdefault(k, t)
+        groups.setdefault(k, []).append(qi)
+    if not groups:
+        return []
+    out = [(names[k], groups[k]) for k in sorted(groups, key=lambda k: (names[k].casefold(), k))]
+    if none:
+        out.append((None, none))
+    return out
+
+
+def _topic_pct(item_matrix: list[list[int]], qis: list[int]) -> float | None:
+    """% of right answers of these students on these questions."""
+    if not item_matrix or not qis:
+        return None
+    return round(100.0 * sum(r[qi] for r in item_matrix for qi in qis) / (len(item_matrix) * len(qis)), 1)
+
+
+def _topics_summary(prep: dict) -> list[dict]:
+    """Class % correct per topic, the hardest topic first; the questions without a topic last."""
+    out = [{"topic": t, "n": len(qis), "questions": [qi + 1 for qi in qis], "pct_correct": _topic_pct(prep["item_matrix"], qis)}
+           for t, qis in topic_groups(prep["questions"])]
+    named = sorted((x for x in out if x["topic"] is not None),
+                   key=lambda x: (x["pct_correct"] if x["pct_correct"] is not None else 101, x["topic"].casefold()))
+    return named + [x for x in out if x["topic"] is None]
+
+
 def _prepare(exam: dict, scans: list[dict], students: dict[str, str]) -> dict:
     """Everything both pages need, worked out once and in the same way."""
     questions = exam.get("questions", [])
@@ -362,6 +411,8 @@ def compute(exam: dict, scans: list[dict], students: dict[str, str], settings: d
     out["hardest"] = sorted(per_q, key=lambda x: x["pct_correct"])[:5]
     out["easiest"] = sorted(per_q, key=lambda x: -x["pct_correct"])[:5]
     out["flagged"] = [x for x in per_q if x["flags"]]
+    if topic_groups(questions):        # only when questions have topics: otherwise stats.json is as it was
+        out["topics"] = _topics_summary(prep)
     return out
 
 
@@ -408,7 +459,7 @@ def question_detail(exam: dict, scans: list[dict], students: dict[str, str], set
     key_letter = L.LETTERS[correct] if isinstance(correct, int) and 0 <= correct < len(q["choices"]) else "?"
     out = {"set_id": exam["id"], "title": exam.get("meta", {}).get("title", ""), "q": qi + 1,
            "n_questions": len(prep["questions"]), "text_parts": text_parts(q["text"]),
-           "key_letter": key_letter, "n_scored": n}
+           "key_letter": key_letter, "n_scored": n, "topic": question_topic(q)}
     if not n:
         out.update({"empty": True, "options": []})
         return out
@@ -564,14 +615,62 @@ def student_detail(exam: dict, scans: list[dict], students: dict[str, str], sett
                          if not right_q[qi] and class_pct[qi] >= EASY_PCT]
         out["strong"] = [q_item(qi) for qi in sorted(right_q, key=lambda qi: (class_pct[qi], qi))
                          if right_q[qi] and class_pct[qi] < HARD_PCT]
+
+    # by topic (only when questions have topics): the student's own % and, from 5 scored sheets, the class %
+    out["topics"], out["topic_below"] = [], TOPIC_BELOW_POINTS
+    for topic, qis in topic_groups(questions):
+        qs = [qi for qi in qis if qi in right_q]
+        if not qs:
+            continue
+        r = sum(1 for qi in qs if right_q[qi])
+        mine = round(100.0 * r / len(qs), 1)
+        cls = _topic_pct(prep["item_matrix"], qs) if out["difficulty_ok"] else None
+        out["topics"].append({"topic": topic, "n": len(qs), "right": r, "percent": mine, "class_pct": cls,
+                              "below": topic is not None and cls is not None and cls - mine >= TOPIC_BELOW_POINTS})
     return out
 
 
-def student_history(sets: list[dict], student_no: str, scans_of, get_set, current_set_id: str | None = None) -> list[dict]:
+def n_counted(exam: dict, scans: list[dict]) -> int:
+    """How many of these sheets count in the figures (scored, the newest of each student)."""
+    return len(_prepare(exam, scans, {})["rows"])
+
+
+def class_compared_alone(exam: dict, scans: list[dict], courses: dict[str, str] | None) -> bool:
+    """True when the students of the set's class can be compared with the class only: the class has at
+    least CLASS_VIEW_MIN counted sheets and the rest (everybody else) 0 or at least CLASS_VIEW_MIN.
+    Otherwise the class figures and the figures of all students, put side by side, would give away a
+    few students' scores (all minus the class = the rest), so everybody is compared with everybody."""
+    cls = " ".join(str((exam.get("meta") or {}).get("course") or "").split())
+    if not cls or courses is None:
+        return False
+    n_class = n_counted(exam, filter_by_course(scans, courses, cls))
+    n_rest = n_counted(exam, scans) - n_class
+    return n_class >= CLASS_VIEW_MIN and (n_rest == 0 or n_rest >= CLASS_VIEW_MIN)
+
+
+def class_scans(exam: dict, scans: list[dict], student_no: str | None, courses: dict[str, str] | None):
+    """The sheets one student is compared with: for an exam set with a class and a student of that class,
+    the sheets of the class only (when class_compared_alone allows it); otherwise every sheet. Returns
+    (scans, scope) with scope None (no class, or a class student compared with everybody because the
+    class or the rest is too small), "in" (compared within the class) or "out" (not in the class or
+    unreadable number: compared with all)."""
+    cls = " ".join(str((exam.get("meta") or {}).get("course") or "").split())
+    if not cls or courses is None:
+        return scans, None
+    if readable_no(student_no) and course_of(student_no, courses) == course_key(cls):
+        if class_compared_alone(exam, scans, courses):
+            return filter_by_course(scans, courses, cls), "in"
+        return scans, None
+    return scans, "out"
+
+
+def student_history(sets: list[dict], student_no: str, scans_of, get_set, current_set_id: str | None = None,
+                    courses: dict[str, str] | None = None) -> list[dict]:
     """This student's counted result in every exam set (oldest first), with the class mean and the
     place in that set. scans_of(set_id) / get_set(set_id) are db.list_scans / db.get_set.
     With current_set_id: the earlier MCQs of the same module (see set_group) that the student did not sit
-    are listed too ("absent": True), and each result gets the change since the previous one of that module."""
+    are listed too ("absent": True), and each result gets the change since the previous one of that module.
+    With courses (students' courses): an MCQ with a class compares a student of that class within the class only."""
     if not student_no or "?" in student_no:
         return []
     by_id = {s["id"]: s for s in sets}
@@ -584,7 +683,7 @@ def student_history(sets: list[dict], student_no: str, scans_of, get_set, curren
         if not exam or not exam.get("versions"):
             continue
         same = group is not None and set_group(s) == group
-        scans = scans_of(s["id"])
+        scans, _ = class_scans(exam, scans_of(s["id"]), student_no, courses)
         prep = _prepare(exam, scans, {})
         mine = [r for r in prep["rows"] if r["student_no"] == student_no]
         if not mine:
@@ -808,6 +907,9 @@ def class_view(exam: dict, full: dict) -> dict:
                             "percent": round(100.0 * c["count"] / total, 1) if total else 0.0, "is_key": c["is_key"]})
         per_q.append({"q": pq["q"], "text_parts": text_parts(q["text"]), "pct_correct": pq["pct_correct"],
                       "choices": choices, "blank": pq.get("blank", 0), "multiple": pq.get("multiple", 0)})
+    if full.get("topics"):              # class figures per topic, like the questions themselves
+        out["topics"] = [{"topic": x["topic"], "n": x["n"], "questions": list(x["questions"]),
+                          "pct_correct": x["pct_correct"]} for x in full["topics"]]
     out.update({
         "mean": full.get("mean"), "median": full.get("median"), "pass_rate": full.get("pass_rate"),
         "pass_mark": full.get("pass_mark"),
@@ -816,7 +918,19 @@ def class_view(exam: dict, full: dict) -> dict:
         "histogram": [{"label": h["label"], "count": h["count"]} for h in full.get("histogram", [])]
         if n >= CLASS_VIEW_HISTOGRAM_MIN else [],
         "per_question": per_q,
-        "hardest": sorted(per_q, key=lambda r: r["pct_correct"])[:5],
+        "hardest": class_hardest(per_q),
         "easiest": sorted(per_q, key=lambda r: -r["pct_correct"])[:5],
+        "hardest_below": CLASS_HARD_BELOW,
     })
     return out
+
+
+CLASS_HARD_BELOW = 60.0       # Statistics for students: "among the hardest" only under this % correct
+
+
+def class_hardest(per_q: list[dict]) -> list[dict]:
+    """The questions the class found hardest: under CLASS_HARD_BELOW % correct, the lowest first (ties by
+    question number), at most min(5, a third of the questions rounded up)."""
+    cap = min(5, math.ceil(len(per_q) / 3))
+    low = sorted((r for r in per_q if r["pct_correct"] < CLASS_HARD_BELOW), key=lambda r: (r["pct_correct"], r["q"]))
+    return low[:cap]

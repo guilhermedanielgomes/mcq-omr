@@ -24,7 +24,8 @@ var t = window.t || function (s, v) { return v ? s.replace(/\{(\w+)\}/g, functio
   // question page: which students picked each answer (anchor = one answer, e.g. "choice-B", "blank")
   // course filter (drop-down in the toolbar, only there when students have a course): kept in the URL
   let course = window.COURSE || "";
-  const cq = () => course ? `?course=${encodeURIComponent(course)}` : "";
+  // an exam set with a class opens on it when no course is given, so "All students" is sent as course= (empty)
+  const cq = () => course ? `?course=${encodeURIComponent(course)}` : (window.HAS_CLASS ? "?course=" : "");
   const qurl = (q, anchor) => `/sets/${encodeURIComponent(window.SET_ID)}/questions/${q}` + cq() + (anchor ? `#${anchor}` : "");
   const sel = document.getElementById("course");
   if (sel) sel.addEventListener("change", () => {
@@ -146,6 +147,22 @@ var t = window.t || function (s, v) { return v ? s.replace(/\{(\w+)\}/g, functio
         t("It rises with more questions and with questions that discriminate.")));
     two.append(bandCard, rel);
     root.append(two);
+
+    // topics (only when the questions have topics): class % correct per topic, hardest first
+    if (d.topics && d.topics.length) {
+      const tc = h("div", { class: "card", id: "topics" }, h("h2", { style: "margin-top:0" }, t("Topics")));
+      const tt = h("table", {}, h("tr", {}, h("th", {}, t("Topic")), h("th", {}, t("Questions")), h("th", {}, t("% correct")), h("th", {}, "")));
+      d.topics.forEach(x => {
+        const qs = h("span", { class: "small" });
+        x.questions.forEach((q, i) => { if (i) qs.append(" "); qs.append(h("a", { class: "qlink", href: qurl(q) }, t("Q{n}", { n: q }))); });
+        tt.append(h("tr", {}, h("td", {}, x.topic === null ? h("span", { class: "muted" }, t("No topic")) : x.topic),
+          h("td", {}, h("span", {}, String(x.n) + " · "), qs),
+          h("td", {}, fmt(x.pct_correct) + "%"),
+          h("td", { style: "width:35%" }, h("span", { class: "hbar-track" }, h("span", { class: "hbar-fill", style: `width:${Math.max(0, Math.min(100, x.pct_correct || 0))}%` })))));
+      });
+      tc.append(tt, h("p", { class: "hint" }, t("Share of right answers on the questions of each topic, from the hardest topic to the easiest. Topics are set per question in the exam set.")));
+      root.append(tc);
+    }
 
     // per question
     const pq = h("div", { class: "card" }, h("h2", { style: "margin-top:0" }, t("Questions (original numbering)")));

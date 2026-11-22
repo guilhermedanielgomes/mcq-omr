@@ -6,14 +6,16 @@
 <div class="row" style="justify-content:space-between">
   <h1>{{ _("Question %(n)s", n=d.q) }} <span class="muted small">{{ _("of %(n)s", n=d.n_questions) }} · {{ exam.meta.title }}{% if course_label %} · {{ _("course: <b>%(course)s</b>", course=course_label) }}{% endif %}</span></h1>
   <div class="row">
-    {% if d.q > 1 %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q - 1 }}{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Previous: Q%(n)s", n=d.q - 1) }}</a>{% endif %}
-    {% if d.q < d.n_questions %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q + 1 }}{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Next: Q%(n)s", n=d.q + 1) }}</a>{% endif %}
-    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Back to statistics") }}</a>
+    {% if d.q > 1 %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q - 1 }}{{ ('?course=' ~ course|urlencode) if course else ('?course=' if exam.meta.course else '') }}">{{ _("Previous: Q%(n)s", n=d.q - 1) }}</a>{% endif %}
+    {% if d.q < d.n_questions %}<a class="btn secondary small" href="/sets/{{ exam.id }}/questions/{{ d.q + 1 }}{{ ('?course=' ~ course|urlencode) if course else ('?course=' if exam.meta.course else '') }}">{{ _("Next: Q%(n)s", n=d.q + 1) }}</a>{% endif %}
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else ('?course=' if exam.meta.course else '') }}">{{ _("Back to statistics") }}</a>
   </div>
-</div>
+</div>{% if class_empty %}
+<p class="note">{{ _("No sheet of the class %(course)s is counted yet, so all students are shown.", course=class_empty) }}</p>{% endif %}
 
 <div class="card">
-  {{ show_text(d.text_parts) }}
+  {{ show_text(d.text_parts) }}{% if d.topic %}
+  <p class="small">{{ _("Topic: <b>%(topic)s</b>", topic=d.topic) }}</p>{% endif %}
   <p class="small muted" style="margin-bottom:0">{{ _("Numbered as you entered the questions, with the choices in the order you entered them. The key is <b>%(key)s</b>.", key=d.key_letter) }}</p>
 </div>
 
@@ -57,7 +59,7 @@
     {{ copy_btn(o.students|map(attribute="student_no")|select|list, emails) }}</h2>
   {% if o.is_answer %}{{ show_text(o.text_parts, "qtext small") }}{% endif %}
   {% if o.note %}<p class="note {{ 'warn' if o.warn else '' }}">{{ o.note }}</p>{% endif %}
-  <div class="table-wrap"><table>
+  <div class="table-wrap"><table data-sortable>
     <tr><th>{{ _("Student") }}</th><th>{{ _("Name") }}</th><th>{{ _("Version") }}</th><th title="{{ _("Where this question was on the student's own paper, and the letter they filled there") }}">{{ _("On their sheet") }}</th><th>{{ _("Score") }}</th><th>%</th><th>{{ _("Band") }}</th>{% if d.groups %}<th>{{ _("Group") }}</th>{% endif %}<th></th></tr>
     {% for s in o.students %}
     <tr>

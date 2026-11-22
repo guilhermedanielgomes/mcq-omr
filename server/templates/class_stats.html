@@ -19,10 +19,11 @@
       </select></label>
     {% endif %}
     {% if d.enough %}<button type="button" class="small secondary" id="answers-toggle">{{ _("Show the correct answers") }}</button>{% endif %}
-    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else '' }}">{{ _("Back to statistics") }}</a>
+    <a class="btn secondary small" href="/sets/{{ exam.id }}/stats{{ ('?course=' ~ course|urlencode) if course else ('?course=' if exam.meta.course else '') }}">{{ _("Back to statistics") }}</a>
   </div>
 </div>
-<p class="hint noprint">{{ _("This page is meant to be shown to the class: it has no names, student numbers or individual marks, no ranking and no lowest or highest score. The correct answers stay hidden until you press the button above.") }}</p>
+<p class="hint noprint">{{ _("This page is meant to be shown to the class: it has no names, student numbers or individual marks, no ranking and no lowest or highest score. The correct answers stay hidden until you press the button above.") }}</p>{% if class_empty %}
+<p class="note noprint">{{ _("No sheet of the class %(course)s is counted yet, so all students are shown.", course=class_empty) }}</p>{% endif %}
 
 {% if not d.enough %}
 <div class="card"><p>{% if course_label %}{{ _("This page appears once at least %(min)s sheets are scored for this course (%(n)s so far). With fewer, individual marks could be worked out from the figures.", min=d.min_needed, n=d.n_scored) }}{% else %}{{ _("This page appears once at least %(min)s sheets are scored (%(n)s so far). With fewer, individual marks could be worked out from the figures.", min=d.min_needed, n=d.n_scored) }}{% endif %}</p></div>
@@ -63,17 +64,38 @@
 
 <div class="card">
   <h2 style="margin-top:0">{{ _("Questions the class found hardest") }}</h2>
-  <ol class="plain-ol">{% for r in d.hardest %}<li>{{ _('<a href="#cq-%(q)s">Question %(q)s</a>: %(pct)s%% correct', q=r.q, pct=r.pct_correct|num) }}</li>{% endfor %}</ol>
+  {% if d.hardest %}<ol class="plain-ol">{% for r in d.hardest %}<li>{{ _('<a href="#cq-%(q)s">Question %(q)s</a>: %(pct)s%% correct', q=r.q, pct=r.pct_correct|num) }}</li>{% endfor %}</ol>{% else %}
+  <p class="muted">{{ _("No question was answered correctly by fewer than %(pct)s%% of the class.", pct=d.hardest_below|num) }}</p>{% endif %}
 </div>
+{% if d.topics %}
 
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Topics") }}</h2>
+  <div class="table-wrap"><table>
+    <tr><th>{{ _("Topic") }}</th><th>{{ _("Questions") }}</th><th>{{ _("% correct") }}</th><th style="width:35%"></th></tr>
+    {% for x in d.topics %}
+    <tr><td>{% if x.topic is none %}<span class="muted">{{ _("No topic") }}</span>{% else %}{{ x.topic }}{% endif %}</td>
+      <td class="small">{% for q in x.questions %}<a href="#cq-{{ q }}">{{ _("Q%(n)s", n=q) }}</a>{{ " " if not loop.last }}{% endfor %}</td>
+      <td>{{ x.pct_correct|num }}%</td>
+      <td><span class="hbar-track"><span class="hbar-fill" style="width:{{ x.pct_correct }}%"></span></span></td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="hint">{{ _("Share of right answers on the questions of each topic, from the hardest topic to the easiest.") }}</p>
+</div>
+{% endif %}
+{% set hard_qs = d.hardest|map(attribute="q")|list %}
 {% for r in d.per_question %}
-<div class="card classq" id="cq-{{ r.q }}">
-  <h2 style="margin-top:0">{{ _("Question %(n)s", n=r.q) }} <span class="muted small">{{ _("%(pct)s%% correct", pct=r.pct_correct|num) }}</span></h2>
+<div class="card classq {{ 'hardest' if r.q in hard_qs else '' }}" id="cq-{{ r.q }}">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <h2 style="margin-top:0">{{ _("Question %(n)s", n=r.q) }} <span class="muted small">{{ _("%(pct)s%% correct", pct=r.pct_correct|num) }}</span>
+      {% if r.q in hard_qs %}<span class="tag hardtag">{{ _("Among the hardest") }}</span>{% endif %}</h2>
+    <button type="button" class="small secondary answer-one noprint">{{ _("Show the answer") }}</button>
+  </div>
   {{ show_text(r.text_parts) }}
   <div class="table-wrap"><table class="answers-table">
     {% for c in r.choices %}
     <tr class="{{ 'keyrow' if c.is_key else '' }}">
-      <td style="width:42px"><span class="answer-letter">{{ c.letter }}</span><span class="keymark"> {{ _("(correct)") }}</span></td>
+      <td style="width:42px"><span class="answer-letter">{{ c.letter }}</span>{% if c.is_key %}<span class="keymark"> {{ _("(correct)") }}</span>{% endif %}</td>
       <td>{% for part in c.text_parts %}<div class="{{ 'mono' if part.code else '' }}">{{ part.text }}</div>{% endfor %}</td>
       <td style="width:38%"><div class="pickbar"><span class="hbar-track"><span class="hbar-fill" style="width:{{ c.percent }}%"></span></span><span class="small">{{ c.percent|num }}%</span></div></td>
     </tr>
@@ -87,15 +109,28 @@
 {% block scripts %}
 <script>
 (function () {
-  var btn = document.getElementById("answers-toggle");
-  if (!btn) return;
-  var shown = false;
-  function apply() {
-    document.body.classList.toggle("answers-shown", shown);
-    btn.textContent = shown ? t("Hide the correct answers") : t("Show the correct answers");
+  // each question card shows its answer on its own; the button at the top shows or hides all of them
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".classq"));
+  var all = document.getElementById("answers-toggle");
+  function label(card) {
+    var b = card.querySelector(".answer-one");
+    if (b) b.textContent = card.classList.contains("shown") ? t("Hide the answer") : t("Show the answer");
   }
-  btn.addEventListener("click", function () { shown = !shown; apply(); });
-  apply();
+  function labelAll() {
+    if (!all) return;
+    var every = cards.length > 0 && cards.every(function (c) { return c.classList.contains("shown"); });
+    all.textContent = every ? t("Hide the correct answers") : t("Show the correct answers");
+  }
+  cards.forEach(function (card) {
+    var b = card.querySelector(".answer-one");
+    if (b) b.addEventListener("click", function () { card.classList.toggle("shown"); label(card); labelAll(); });
+  });
+  if (all) all.addEventListener("click", function () {
+    var every = cards.every(function (c) { return c.classList.contains("shown"); });
+    cards.forEach(function (c) { c.classList.toggle("shown", !every); label(c); });
+    labelAll();
+  });
+  labelAll();
 })();
 </script>
 {% endblock %}

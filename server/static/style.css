@@ -181,7 +181,24 @@ button.copyemails { white-space:nowrap; }
 .classhist-label { font-size:11px; color:var(--muted); margin-top:4px; white-space:nowrap; }
 .classq .qtext { font-size:16px; }
 ol.plain-ol { margin:0; padding-left:22px; }
-body:not(.answers-shown) .classq tr.keyrow td { background:transparent; }
-body:not(.answers-shown) .classq .keymark { display:none; }
+.classq:not(.shown) tr.keyrow td { background:transparent; }
+.classq:not(.shown) .keymark { display:none; }
+.classq.hardest { border:2px solid var(--bad); }
+.tag.hardtag { background:#fde3e3; color:var(--bad); font-size:12px; vertical-align:middle; }
 .keymark { color:var(--ok); font-size:12px; font-weight:600; }
 @media print { .noprint, header.top { display:none; } .card { break-inside:avoid; } }
+
+/* autosave status next to a form */
+.autosave-status { margin-left:8px; color:var(--muted); }
+.autosave-status.saved { color:var(--ok); }
+.autosave-status.failed { color:var(--bad); }
+label .autosave-status { font-weight:normal; }
+[data-autosave-hide][hidden] { display:none !important; }
+.autosave-invalid { border-color:var(--bad) !important; box-shadow:0 0 0 2px #fde3e3; }
+
+/* sortable tables (static/sortable.js): click a heading to sort, again to reverse */
+th.sortable { cursor:pointer; user-select:none; }
+th.sortable:hover, th.sortable:focus-visible { color:var(--accent); }
+th[aria-sort="ascending"] .sortarrow::after, [data-sort-by].sorted-asc::after { content:" \25B2"; font-size:10px; }
+th[aria-sort="descending"] .sortarrow::after, [data-sort-by].sorted-desc::after { content:" \25BC"; font-size:10px; }
+[data-sort-by].sorted-asc, [data-sort-by].sorted-desc { font-weight:700; text-decoration:none; color:var(--ink); }
