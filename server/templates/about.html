@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ _("About MCQ-OMR") }}{% endblock %}
+{% block content %}
+<h1>{{ _("About MCQ-OMR") }}</h1>
+<div class="card">
+  <p><b>MCQ-OMR</b> · {{ _("version %(v)s", v=ABOUT.version()) }}</p>
+  <p>{{ _("Multiple-choice exams with answer sheets read from phone photos.") }}</p>
+  <p>{{ _("Developed by %(dev)s.", dev=ABOUT.DEVELOPER) }}<br>
+    {{ _("Website:") }} <a href="{{ ABOUT.WEBSITE }}" target="_blank" rel="noopener">{{ ABOUT.WEBSITE.replace("https://", "") }}</a><br>
+    {{ _("Contact:") }} <a href="mailto:{{ ABOUT.EMAIL }}">{{ ABOUT.EMAIL }}</a><br>
+    {{ _("Source code and new versions:") }} <a href="{{ ABOUT.REPO }}" target="_blank" rel="noopener">{{ ABOUT.REPO.replace("https://", "") }}</a></p>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Licence") }}</h2>
+  <p>{{ _("MCQ-OMR is free and open-source software under the %(licence)s licence: you may use, copy, change and share it freely. It comes without any warranty.", licence=ABOUT.LICENSE_NAME) }}</p>
+  <p class="small muted">{{ ABOUT.COPYRIGHT }}</p>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">{{ _("Your data") }}</h2>
+  <p>{{ _("Exams, photos, students and results stay on this computer. MCQ-OMR has no accounts and sends nothing to any server.") }}</p>
+  {% if update.enabled %}
+  <p>{% if update.newer %}{{ _("Version %(latest)s is available.", latest=update.latest) }} <a href="{{ update.url }}" target="_blank" rel="noopener">{{ _("Download it") }}</a>
+     {% elif update.latest %}{{ _("This is the newest version.") }}
+     {% elif update.error %}{{ _("The newest version could not be checked (no internet connection?).") }}{% endif %}
+     <span class="small muted">{{ _("Checking for new versions is on (Settings).") }}</span></p>
+  {% else %}
+  <p class="small muted">{{ _("Checking for new versions is off. You can turn it on in Settings, or look at the Releases page yourself.") }} <a href="{{ ABOUT.RELEASES }}" target="_blank" rel="noopener">{{ _("Releases") }}</a></p>
+  {% endif %}
+</div>
+{% endblock %}

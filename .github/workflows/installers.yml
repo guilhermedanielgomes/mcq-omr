@@ -42,6 +42,7 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "MCQ_VERSION=$V" >> "$GITHUB_ENV"
+          printf '__version__ = "%s"\n' "$V" > server/omr/_version.py   # the version the app shows
 
       - name: Install the pinned packages
         run: |

@@ -149,4 +149,4 @@ sh packaging/macos/build_dmg.sh 1.0.0 dist
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Developed by GGSDev ([guilherme.ie](https://guilherme.ie)).

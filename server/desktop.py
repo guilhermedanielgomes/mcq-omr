@@ -321,6 +321,7 @@ class LauncherWindow:
         bk.grid(column=0, row=6, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Button(bk, text=tr("Back up…"), command=self.do_backup).grid(column=0, row=0)
         ttk.Button(bk, text=tr("Restore a backup…"), command=self.do_restore).grid(column=1, row=0, padx=6)
+        ttk.Button(bk, text=tr("About"), command=self.show_about).grid(column=2, row=0)
         self.status = ttk.Label(frm, textvariable=self.status_text, foreground=self.status_colour, wraplength=460,
                                 justify="left")
         self.status.grid(column=0, row=7, columnspan=2, sticky="w", pady=(6, 0))
@@ -382,6 +383,34 @@ class LauncherWindow:
         from omr import db
         db.set_lan_protect(True)              # switched on: always a new password (shown by build)
         self.root.after_idle(self.build)
+
+    def show_about(self):
+        """Who makes MCQ-OMR, its version and licence (the same as the About page in the browser)."""
+        import tkinter as tk
+        from tkinter import ttk
+
+        from omr import about
+        win = tk.Toplevel(self.root)
+        win.title(tr("About MCQ-OMR"))
+        win.resizable(False, False)
+        box = ttk.Frame(win, padding=16)
+        box.grid()
+        ttk.Label(box, text="MCQ-OMR", font=("TkDefaultFont", 14, "bold")).grid(column=0, row=0, sticky="w")
+        ttk.Label(box, text=tr("version %(v)s", v=about.version())).grid(column=0, row=1, sticky="w")
+        ttk.Label(box, text=tr("Developed by %(dev)s.", dev=about.DEVELOPER)).grid(column=0, row=2, sticky="w", pady=(8, 0))
+
+        def link(row, text, url):
+            lbl = ttk.Label(box, text=text, foreground="#1f5fbf", cursor="hand2")
+            lbl.grid(column=0, row=row, sticky="w")
+            lbl.bind("<Button-1>", lambda e: webbrowser.open(url))
+
+        link(3, about.WEBSITE.replace("https://", ""), about.WEBSITE)
+        link(4, about.EMAIL, "mailto:" + about.EMAIL)
+        link(5, about.REPO.replace("https://", ""), about.REPO)
+        ttk.Label(box, text=tr("MCQ-OMR is free and open-source software under the %(licence)s licence: you may use, copy, change and share it freely. It comes without any warranty.", licence=about.LICENSE_NAME),
+                  wraplength=360, justify="left").grid(column=0, row=6, sticky="w", pady=(10, 0))
+        ttk.Label(box, text=about.COPYRIGHT, foreground="#666").grid(column=0, row=7, sticky="w", pady=(4, 0))
+        ttk.Button(box, text=tr("Close"), command=win.destroy).grid(column=0, row=8, pady=(12, 0))
 
     def show_qr(self):
         """A small window with the pairing QR code: mcqomr://pair?u=<phone address>&t=<password>."""

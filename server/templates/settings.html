@@ -13,6 +13,14 @@
   </form>
 </div>
 
+<div class="card" id="updates">
+  <form method="post" action="/settings/updates" data-autosave>
+    <label class="inline"><input type="checkbox" name="update_check" {% if s.update_check %}checked{% endif %}> {{ _("Tell me when a new version of MCQ-OMR is available") }}</label>
+    <button type="submit" class="secondary small" data-autosave-hide>{{ _("Save") }}</button>
+  </form>
+  <p class="hint">{{ _("When this is on, MCQ-OMR asks GitHub once a day which version is the newest. Nothing about you or your data is sent. When it is off, MCQ-OMR never contacts the internet.") }} <a href="/about">{{ _("About MCQ-OMR") }}</a></p>
+</div>
+
 <div class="card" id="courses">
   <h2 style="margin-top:0">{{ _("Courses and student emails") }}</h2>
   <div class="grid2">

@@ -45,6 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from omr import backup as backupmod
+from omr import about as aboutmod
 from omr import db
 from omr import i18n
 from omr.i18n import tr
@@ -74,6 +75,8 @@ templates.env.globals["LETTERS"] = L.LETTERS
 templates.env.globals["_"] = i18n.jinja_gettext
 templates.env.globals["ngettext"] = i18n.jinja_ngettext
 templates.env.globals["LANGUAGES"] = i18n.LANGUAGES
+templates.env.globals["ABOUT"] = aboutmod
+templates.env.globals["update_check_on"] = lambda: bool(db.settings_get().get("update_check"))
 templates.env.globals["current_lang"] = i18n.current
 templates.env.globals["html_lang"] = lambda: i18n.HTML_LANG.get(i18n.current(), "en")
 templates.env.filters["flag"] = i18n.flag
@@ -126,6 +129,24 @@ def i18n_js(lang: str = "en"):
             " return P[i][1].replace(/%\\((\\w+)\\)s/g, function (x, k) { return k in g ? g[k] : x; }); } } return f; };\n")
     return Response(body, media_type="application/javascript; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/about", response_class=HTMLResponse)
+def about_page(request: Request):
+    st = db.settings_get()
+    return templates.TemplateResponse(request, "about.html", {"update": aboutmod.check(bool(st.get("update_check")))})
+
+
+@app.get("/updates.json")
+def updates_json(force: int = 0):
+    """For the notice at the top of the pages: only when the person turned the check on in Settings."""
+    return JSONResponse(aboutmod.check(bool(db.settings_get().get("update_check")), force=bool(force)))
+
+
+@app.post("/settings/updates")
+def settings_updates(update_check: str = Form("")):
+    db.settings_set(update_check=update_check == "on")
+    return RedirectResponse("/settings#updates", status_code=303)
 
 
 @app.post("/settings/language")

@@ -57,6 +57,7 @@ if sys.platform == "darwin":
             "CFBundleDisplayName": "MCQ-OMR",
             "CFBundleShortVersionString": VERSION,
             "NSHighResolutionCapable": True,
+            "NSHumanReadableCopyright": "© 2026 Guilherme Daniel Gomes Silva (GGSDev). MIT licence.",
             "NSLocalNetworkUsageDescription": "MCQ-OMR receives the photos of answer sheets from the phone app on your network.",
         },
     )

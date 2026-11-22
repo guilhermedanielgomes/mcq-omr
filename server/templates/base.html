@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}MCQ-OMR{% endblock %}</title>
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=8">
 <script src="/i18n.js?lang={{ current_lang() }}&amp;v=1"></script>
 </head>
 <body>
@@ -20,12 +20,28 @@
   </nav>
 </header>
 <main>
+{% if update_check_on() %}<div class="msg update-notice" id="update-notice" hidden></div>{% endif %}
 {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 {% block content %}{% endblock %}
 </main>
+<footer class="site-footer"><a href="/about">{{ _("About MCQ-OMR") }}</a> · {{ _("version %(v)s", v=ABOUT.version()) }} · {{ ABOUT.DEVELOPER }}</footer>
 <script src="/static/copy.js?v=4"></script>
 <script src="/static/autosave.js?v=3"></script>
 <script src="/static/sortable.js?v=1"></script>
+{% if update_check_on() %}<script>
+(function () {
+  // the check runs only because it was turned on in Settings; the server asks GitHub at most once a day
+  fetch("/updates.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (u) {
+    if (!u.newer) return;
+    var box = document.getElementById("update-notice");
+    var a = document.createElement("a");
+    a.href = u.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = t("Download it");
+    box.textContent = t("MCQ-OMR {latest} is available (you have {current}).", { latest: u.latest, current: u.current }) + " ";
+    box.appendChild(a);
+    box.hidden = false;
+  }).catch(function () {});
+})();
+</script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -325,6 +325,7 @@ DEFAULT_SETTINGS = {
     "reveal_show_percent": True,
     "reveal_show_score": True,
     "language": "",           # interface language code (see omr/i18n.py); "" = the browser's language
+    "update_check": False,    # ask GitHub once a day for a newer version (off unless turned on)
     "reveal_hide_after": 0,   # seconds after which a revealed result hides by itself (0 = only by a tap)
     "email_domain": "",       # students' default email: student number @ this (e.g. student.university.edu)
     "course_list": [],        # the courses offered in the drop-down next to each student in Settings

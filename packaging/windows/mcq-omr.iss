@@ -14,8 +14,12 @@
 AppId={{6F3C2B1E-8D4A-4C5B-9E7F-2A1D3C4B5E6F}
 AppName=MCQ-OMR
 AppVersion={#AppVersion}
-AppPublisher=MCQ-OMR
-AppPublisherURL=https://github.com/guilhermedanielgomes/mcq-omr
+AppPublisher=GGSDev
+AppPublisherURL=https://guilherme.ie
+AppSupportURL=https://github.com/guilhermedanielgomes/mcq-omr
+AppUpdatesURL=https://github.com/guilhermedanielgomes/mcq-omr/releases
+AppCopyright=Copyright (c) 2026 Guilherme Daniel Gomes Silva (GGSDev)
+LicenseFile=..\..\LICENSE
 DefaultDirName={autopf}\MCQ-OMR
 DefaultGroupName=MCQ-OMR
 DisableProgramGroupPage=yes

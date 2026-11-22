@@ -13,6 +13,8 @@ mkdir -p "$ROOT/DEBIAN" "$ROOT/opt" "$ROOT/usr/bin" "$ROOT/usr/share/application
 cp -R "$DIST/MCQ-OMR" "$ROOT/opt/mcq-omr"
 ln -s /opt/mcq-omr/MCQ-OMR "$ROOT/usr/bin/mcq-omr"
 cp "$HERE/mcq-omr.desktop" "$ROOT/usr/share/applications/mcq-omr.desktop"
+mkdir -p "$ROOT/usr/share/doc/mcq-omr"
+cp "$HERE/../../LICENSE" "$ROOT/usr/share/doc/mcq-omr/copyright"
 cp "$HERE/../icons/icon-512.png" "$ROOT/usr/share/icons/hicolor/512x512/apps/mcq-omr.png"
 SIZE="$(du -sk "$ROOT/opt" | cut -f1)"
 cat > "$ROOT/DEBIAN/control" <<CTRL
@@ -23,7 +25,7 @@ Priority: optional
 Architecture: amd64
 Installed-Size: $SIZE
 Depends: xdg-utils
-Maintainer: MCQ-OMR <noreply@users.noreply.github.com>
+Maintainer: GGSDev <contact@guilherme.ie>
 Homepage: https://github.com/guilhermedanielgomes/mcq-omr
 Description: Multiple-choice exams with answer sheets read from phone photos
  Every student gets a shuffled version of the exam and a bubble answer sheet. Photos of the
